@@ -1,0 +1,24 @@
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+.env
+
+# LaTeX build artifacts - only keep .tex source files
+report/**/*.pdf
+report/**/*.aux
+report/**/*.log
+report/**/*.out
+report/**/*.toc
+report/**/*.lof
+report/**/*.lot
+report/**/*.fls
+report/**/*.fdb_latexmk
+report/**/*.synctex.gz
+report/**/*.bbl
+report/**/*.blg
+report/**/*.bcf
+report/**/*.run.xml
+report/**/*.nav
+report/**/*.snm
+report/**/*.vrb
