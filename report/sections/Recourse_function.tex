@@ -1,0 +1,121 @@
+% Recourse function section — paste after the main model section
+% Required packages: amsmath, amssymb
+ 
+\subsection{Recourse Function}
+ 
+The second-stage problem is formulated as the recourse function $Q(x, s)$,
+which gives the minimum operational cost achievable for a fixed first-stage
+solution $x = (A_p, X_{pp'h}, Y_{ph}, Z_h, V_{hq})$ and a realised scenario
+$s$ with surgery durations $d_{ps}$:
+%
+\begin{align}
+  Q(x, s) = \min_{S,W,I,O} \quad
+    & \beta_1 \sum_{p \in P} W_{ps}
+    + \beta_2 \sum_{h \in H} I_{hs}
+    + \beta_3 \sum_{h \in H} O_{hs}
+  \label{eq:recourse_obj}
+\end{align}
+ 
+\noindent subject to:
+ 
+\paragraph{Start time propagation.}
+If patient $p'$ follows patient $p$ in session $h$, the start of $p'$ must
+respect patient $p$'s realised duration and the changeover time $c$:
+%
+\begin{align}
+  S_{p's} \geq\; & S_{ps} + d_{ps} + c - M\bigl(1 - X_{pp'h}\bigr)
+  \nonumber \\
+                 & \forall\; p, p' \in P,\; p \neq p',\; h \in H
+  \label{eq:rc_seq}
+\end{align}
+ 
+\paragraph{First patient lower bound.}
+The first patient in session $h$ starts no earlier than the session opening:
+%
+\begin{align}
+  S_{ps} \geq\; t^{\text{start}} - M\bigl(1 - X_{0ph}\bigr)
+  \qquad \forall\; p \in P,\; h \in H
+  \label{eq:rc_first}
+\end{align}
+ 
+\paragraph{Appointment lower bound.}
+A patient cannot start surgery before their appointed time:
+%
+\begin{align}
+  S_{ps} \geq\; A_p - M(1 - Y_{ph})
+  \qquad \forall\; p \in P,\; h \in H
+  \label{eq:rc_appt}
+\end{align}
+ 
+\paragraph{Waiting time.}
+Waiting time is the excess of actual start time over appointment time:
+%
+\begin{equation}
+  W_{ps} \geq S_{ps} - A_p
+  \qquad \forall\; p \in P
+  \label{eq:rc_wait}
+\end{equation}
+ 
+\paragraph{Overtime.}
+Overtime is incurred when any patient's finish time exceeds the session closing
+time. The big-$M$ term deactivates the constraint for patients not in session
+$h$:
+%
+\begin{align}
+  O_{hs} \geq\; S_{ps} + d_{ps} - t^{\text{close}} - M(1 - Y_{ph})
+  \qquad \forall\; p \in P,\; h \in H
+  \label{eq:rc_ot}
+\end{align}
+ 
+\paragraph{Idle time.}
+Idle time equals the session window minus total utilisation, corrected for
+overtime. There are $\sum_{p}Y_{ph} - Z_h$ inter-patient changeovers in an
+open session (one fewer than the number of patients):
+%
+\begin{align}
+  I_{hs} \geq\; & \bigl(t^{\text{close}} - t^{\text{start}}\bigr) Z_h
+                  - \sum_{p \in P} d_{ps}\, Y_{ph} \nonumber \\
+                & - c\Bigl(\sum_{p \in P} Y_{ph} - Z_h\Bigr)
+                  + O_{hs}
+  \qquad \forall\; h \in H
+  \label{eq:rc_idle}
+\end{align}
+ 
+\paragraph{Non-negativity.}
+%
+\begin{equation}
+  S_{ps},\; W_{ps},\; I_{hs},\; O_{hs} \geq 0
+  \qquad \forall\; p \in P,\; h \in H
+  \label{eq:rc_nn}
+\end{equation}
+ 
+\noindent The first-stage variables $A_p$, $X_{pp'h}$, $Y_{ph}$, $Z_h$ enter
+$Q(x,s)$ as fixed parameters. Given these, all constraints are linear in the
+second-stage variables, so $Q(x, s)$ is a linear program for each $(x, s)$.
+ 
+\subsection{Deterministic Equivalent}
+ 
+Rather than solving $Q(x,s)$ separately for each scenario, the two-stage
+model is reformulated as a single deterministic equivalent (DE) by replicating
+the second-stage variables and constraints across all scenarios $s \in S$. The
+full model then becomes:
+%
+\begin{align}
+  \min \quad
+    & \beta_4 \sum_{h \in H} \sum_{q \in Q} D_{hq}
+    + \sum_{s \in S} \pi_s \, Q(x, s)
+  \label{eq:de_obj}
+\end{align}
+ 
+\noindent which, after substituting the recourse function, expands to the
+compact form in \eqref{eq:obj}, subject to all first-stage constraints
+\eqref{eq:appt_bounds}--\eqref{eq:mtz} and, for each scenario $s \in S$,
+the recourse constraints \eqref{eq:rc_seq}--\eqref{eq:rc_nn}.
+ 
+The DE is a mixed-integer linear program (MILP): all integrality requirements
+appear in the first stage, and the second-stage subproblem is a pure LP for
+any fixed first-stage solution. The total number of second-stage variables
+scales as $\mathcal{O}(|S| \cdot (|P| + |H|))$, so tractability depends on
+keeping $|S|$ moderate, for instance through Sample Average Approximation
+(SAA), in which $|S|$ scenarios are drawn from the duration distribution and
+the DE is solved once.
