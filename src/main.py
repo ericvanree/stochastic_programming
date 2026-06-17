@@ -28,6 +28,7 @@ import gurobipy as gp
 from gurobipy import GRB
 import numpy as np
 import pandas as pd
+import plotly.graph_objects as go
 
 # %% [markdown]
 # ## 2. Problem instance — loaded from `input/Question1Data.csv`
@@ -57,7 +58,7 @@ d  = {(row["Patient ID"], 0): float(row["Planned surgery duration"])
 # ── Scalar parameters ─────────────────────────────────────────────────────────
 t_start = 480      # session opening  (08:00 in min from midnight)
 t_close = 960      # session closing  (16:00 in min from midnight)
-c       = 15       # changeover / cleaning time between patients (min)
+c       = 10       # changeover / cleaning time between patients (min)
 M_BIG   = 5_000    # big-M  (safely above any feasible time horizon)
 
 # Objective weights β₁ (wait) β₂ (idle) β₃ (overtime) β₄ (specialty mismatch)
@@ -385,7 +386,209 @@ def print_solution(m, step_name):
         )
 
     total_D = sum(m._D[h, q].X for h in H for q in SPECS)
-    print(f"\nSpecialty violations (D): {total_D:.0f}")
+    d_penalty = beta["D"] * total_D
+    print(f"\nSpecialty violations (D): {total_D:.0f}  → penalty = {d_penalty:.2f}"
+          f"  (β_D={beta['D']})")
+    print(f"Total objective = {m.ObjVal:.4f}"
+          f"  (scenario costs + D penalty)")
+
+
+# %% [markdown]
+# ## 4b. Solution extraction & dashboard
+
+# %%
+# Specialty colour palette (consistent across all plots)
+_SPEC_COLOR = {
+    "CHI": "#4e79a7",
+    "ORT": "#f28e2b",
+    "KNO": "#59a14f",
+    "—":   "#bab0ac",
+}
+
+
+def extract_solution(m):
+    """Extract the optimised solution into a plain dict for visualisation."""
+    if m.SolCount == 0:
+        return None
+
+    sessions = {}
+    for h in H:
+        is_open = m._Z[h].X > 0.5
+        spec = next((q for q in SPECS if m._V[h, q].X > 0.5), "—") if is_open else "—"
+        assigned = [p for p in P if m._Y[p, h].X > 0.5]
+        seq, cur = [], 0
+        for _ in range(len(assigned)):
+            nxt = next((j for j in P if j != cur and m._X[cur, j, h].X > 0.5), None)
+            if nxt is None:
+                break
+            seq.append(nxt)
+            cur = nxt
+        sessions[h] = {
+            "open":       is_open,
+            "specialty":  spec,
+            "session_id": session_ids[h],
+            "sequence":   seq,
+        }
+
+    patients = {}
+    for p in P:
+        h_assigned = next((h for h in H if m._Y[p, h].X > 0.5), None)
+        patients[p] = {
+            "session":     h_assigned,
+            "specialty":   specialty_of[p],
+            "appointment": m._A[p].X,
+            "duration":    {s: d[p, s] for s in S},
+            "start":       {s: m._S[p, s].X for s in S},
+            "wait":        {s: m._W[p, s].X for s in S},
+        }
+
+    return {"sessions": sessions, "patients": patients, "scenarios": list(S)}
+
+
+def plot_dashboard(sol, title):
+    """Interactive Gantt-style session timeline. Scenario selector via dropdown."""
+    if sol is None:
+        print("No solution to plot.")
+        return
+
+    scenarios = sol["scenarios"]
+    open_h    = [h for h in H if sol["sessions"][h]["open"]]
+
+    def row_label(h):
+        sess = sol["sessions"][h]
+        return f"Session {h}  |  {sess['specialty']}  |  ID {sess['session_id']}"
+
+    fig = go.Figure()
+
+    # ── 1. Background: session window (always visible) ─────────────────────────
+    for h in open_h:
+        fig.add_trace(go.Bar(
+            x=[t_close - t_start], y=[row_label(h)], base=[t_start],
+            orientation="h",
+            marker=dict(color="rgba(200,200,200,0.35)", line=dict(width=0)),
+            hoverinfo="skip", showlegend=False, name="_bg",
+        ))
+    n_bg = len(open_h)
+
+    # ── 2. Per-scenario traces ──────────────────────────────────────────────────
+    scenario_trace_ranges = {}
+    for s in scenarios:
+        t0 = len(fig.data)
+        for h in open_h:
+            seq = sol["sessions"][h]["sequence"]
+            for p in seq:
+                pat   = sol["patients"][p]
+                start = pat["start"][s]
+                dur   = pat["duration"][s]
+                appt  = pat["appointment"]
+                wait  = pat["wait"][s]
+                pspec = pat["specialty"]
+                color = _SPEC_COLOR.get(pspec, "#bab0ac")
+
+                # Surgery bar
+                fig.add_trace(go.Bar(
+                    x=[dur], y=[row_label(h)], base=[start],
+                    orientation="h",
+                    marker=dict(color=color, opacity=0.85,
+                                line=dict(color="white", width=1)),
+                    text=(f"<b>Patient {p}</b><br>"
+                          f"Specialty : {pspec}<br>"
+                          f"Appt      : {int(appt)} min  ({appt/60:.2f} h)<br>"
+                          f"Start     : {int(start)} min  ({start/60:.2f} h)<br>"
+                          f"Duration  : {int(dur)} min<br>"
+                          f"Wait      : {wait:.1f} min"),
+                    hovertemplate="%{text}<extra></extra>",
+                    visible=(s == scenarios[0]),
+                    showlegend=False, name=f"s{s}_p{p}",
+                ))
+
+                # Appointment marker: 2-min wide black bar
+                fig.add_trace(go.Bar(
+                    x=[2], y=[row_label(h)], base=[appt - 1],
+                    orientation="h",
+                    marker=dict(color="black", opacity=1.0,
+                                line=dict(width=0)),
+                    hovertemplate=f"Appointment {p}: {int(appt)} min<extra></extra>",
+                    visible=(s == scenarios[0]),
+                    showlegend=False, name=f"appt_s{s}_p{p}",
+                ))
+
+        scenario_trace_ranges[s] = (t0, len(fig.data))
+
+    # ── 3. Legend dummy traces (always visible) ─────────────────────────────────
+    leg_start = len(fig.data)
+    shown_specs = sorted({sol["patients"][p]["specialty"] for p in P})
+    for spec in shown_specs:
+        fig.add_trace(go.Bar(
+            x=[0], y=[""], orientation="h",
+            marker_color=_SPEC_COLOR.get(spec, "#bab0ac"),
+            name=spec, showlegend=True, visible=True, hoverinfo="skip",
+        ))
+    fig.add_trace(go.Bar(
+        x=[0], y=[""], orientation="h",
+        marker_color="black",
+        name="Appointment", showlegend=True, visible=True, hoverinfo="skip",
+    ))
+    leg_end = len(fig.data)
+
+    # ── 4. Dropdown buttons ────────────────────────────────────────────────────────
+    n_total  = len(fig.data)
+    always_on = list(range(n_bg)) + list(range(leg_start, leg_end))
+    buttons = []
+    for s in scenarios:
+        s0, s1 = scenario_trace_ranges[s]
+        vis = [False] * n_total
+        for i in always_on + list(range(s0, s1)):
+            vis[i] = True
+        buttons.append(dict(
+            label=f"Scenario {s}",
+            method="update",
+            args=[{"visible": vis},
+                  {"title": f"{title}  —  Scenario {s}"}],
+        ))
+
+    # ── 5. Layout ───────────────────────────────────────────────────────────────
+    tick_vals = list(range(t_start, t_close + 1, 60))
+    tick_text = [f"{v // 60:02d}:00" for v in tick_vals]
+
+    fig.update_layout(
+        title=f"{title}  —  Scenario {scenarios[0]}",
+        barmode="overlay",
+        bargap=0.3,
+        xaxis=dict(
+            title="Time of day",
+            tickmode="array",
+            tickvals=tick_vals,
+            ticktext=tick_text,
+            range=[t_start - 15, t_close + 15],
+            gridcolor="lightgray",
+            showgrid=True,
+        ),
+        yaxis=dict(
+            title="Session",
+            autorange="reversed",
+            tickfont=dict(size=11),
+        ),
+        updatemenus=[dict(
+            buttons=buttons,
+            direction="down",
+            showactive=True,
+            x=0.0, xanchor="left",
+            y=1.13, yanchor="top",
+        )] if len(scenarios) > 1 else [],
+        height=180 + 80 * len(open_h),
+        plot_bgcolor="white",
+        paper_bgcolor="white",
+        legend=dict(
+            title="Legend",
+            orientation="v",
+            yanchor="top", y=1.0,
+            xanchor="left", x=1.02,
+        ),
+        margin=dict(l=230, r=120, t=100, b=60),
+    )
+
+    fig.show()
 
 
 # %% [markdown]
@@ -411,6 +614,8 @@ m1 = build_model("Step1_TimingOnly", fixed_X=fixed_X_s1)
 m1.setParam("TimeLimit", 120)
 m1.optimize()
 print_solution(m1, "Step 1 — Timing only (session + sequence fixed from CSV)")
+sol1 = extract_solution(m1)
+plot_dashboard(sol1, "Step 1 — Timing only")
 
 # %% [markdown]
 # ## 6. Step 2 — Sequencing + timing
@@ -428,6 +633,8 @@ m2 = build_model("Step2_SeqTiming", fixed_Y=fixed_Y_s2)
 m2.setParam("TimeLimit", 120)
 m2.optimize()
 print_solution(m2, "Step 2 — Sequencing + timing (session fixed from CSV, sequence free)")
+sol2 = extract_solution(m2)
+plot_dashboard(sol2, "Step 2 — Sequencing + timing")
 
 # %% [markdown]
 # ## 7. Step 3 — Full MILP
@@ -441,6 +648,8 @@ m3.setParam("TimeLimit", 300)
 m3.setParam("MIPGap", 0.01)
 m3.optimize()
 print_solution(m3, "Step 3 — Full MILP (all decisions free)")
+sol3 = extract_solution(m3)
+plot_dashboard(sol3, "Step 3 — Full MILP")
 
 # %% [markdown]
 # ## 8. Objective comparison
