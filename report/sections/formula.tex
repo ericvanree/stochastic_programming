@@ -25,7 +25,7 @@
         ORs)
   \item $q_{pq} \in \{0,1\}$ -- 1 if patient $p$ belongs to specialty $q$
   \item $M$ -- sufficiently large constant (big-$M$)
-  \item $\beta_1, \beta_2, \beta_3, \beta_4$ -- weights for waiting time, idle
+  \item $\beta_1=0.6, \beta_2=0.2, \beta_3=0.2, \beta_4=100$ -- weights for waiting time, idle
         time, overtime, and specialty mismatch, respectively
 \end{itemize}
 
@@ -34,26 +34,26 @@
 \subsubsection{First-Stage Variables}
 Decided before scenario realisation:
 \begin{itemize}
-  \item $A_p \geq 0$ -- appointment time assigned to patient $p$
-  \item $X_{ijh} \in \{0,1\}$ -- 1 if patient $j$ is scheduled directly after
+  \item $A_p$ -- appointment time assigned to patient $p$
+  \item $X_{ijh}$ -- 1 if patient $j$ is scheduled directly after
         patient $i$ in session $h$
-  \item $Y_{ph} \in \{0,1\}$ -- 1 if patient $p$ is assigned to session $h$
-  \item $Z_h \in \{0,1\}$ -- 1 if OR session $h$ is opened
-  \item $V_{hq} \in \{0,1\}$ -- 1 if session $h$ is assigned specialty $q$
-  \item $D_{hq} \in \mathbb{Z}_{\geq 0}$ -- number of patients in session $h$ with specialty $q$
+  \item $Y_{ph}$ -- 1 if patient $p$ is assigned to session $h$
+  \item $Z_h$ -- 1 if OR session $h$ is opened
+  \item $V_{hq}$ -- 1 if session $h$ is assigned specialty $q$
+  \item $D_{hq}$ -- number of patients in session $h$ with specialty $q$
         that are not placed in a session with their specialty (violation count)
-  \item $U_{ph} \in \mathbb{Z}_{\geq 0}$ -- position of patient $p$ in session
+  \item $U_{ph}$ -- position of patient $p$ in session
         $h$ (MTZ auxiliary variable)
 \end{itemize}
 
 \subsubsection{Second-Stage Variables}
 Evaluated per scenario $s$:
 \begin{itemize}
-  \item $S_{ps} \geq 0$ -- start time of patient $p$ under
+  \item $S_{ps}$ -- start time of patient $p$ under
         scenario $s$
-  \item $W_{ps} \geq 0$ -- waiting time of patient $p$ under scenario $s$
-  \item $I_{hs} \geq 0$ -- idle time of session $h$ under scenario $s$
-  \item $O_{hs} \geq 0$ -- overtime of session $h$ under scenario $s$
+  \item $W_{ps}$ -- waiting time of patient $p$ under scenario $s$
+  \item $I_{hs}$ -- idle time of session $h$ under scenario $s$
+  \item $O_{hs}$ -- overtime of session $h$ under scenario $s$
 \end{itemize}
 
 \subsection{Objective Function}
@@ -80,12 +80,18 @@ decisions are first-stage.
 
 \subsubsection{Appointment Time Bounds}
 
-Each appointment must fall within the OR session window:
+Each appointment must fall within the OR session window and a patient scheduled first within a session should be scheduled at the opening time:
 %
 \begin{equation}
   t^{\text{start}} \leq A_p \leq t^{\text{close}}
   \qquad \forall\, p \in P
   \label{eq:appt_bounds}
+\end{equation}
+
+\begin{equation}
+  A_p \leq t^{\text{start}}+M*(1-\sum_{h \in H}X_{0ph})
+  \qquad \forall\, p \in P
+  \label{eq:start_first}
 \end{equation}
 
 \subsubsection{Assignment and Session Opening}
@@ -149,7 +155,7 @@ mirroring a vehicle routing formulation:
   \sum_{\substack{p' \in P_0 \\ p' \neq p}} X_{pp'h} &= Y_{ph}
   \qquad \forall\, p \in P,\; h \in H
   \label{eq:flow_out} \\[2pt]
-  \sum_{\substack{p \in P_0 \\ p \neq p'}} X_{pp'jh} &= Y_{p'h}
+  \sum_{\substack{p \in P_0 \\ p \neq p'}} X_{pp'h} &= Y_{p'h}
   \qquad \forall\, p' \in P,\; h \in H
   \label{eq:flow_in}
 \end{align}
@@ -166,32 +172,22 @@ of $j$ must respect $i$'s realised duration and the changeover time:
   \label{eq:time_seq}
 \end{align}
 
-The first patient in a session starts no earlier than the session opening plus
-its changeover from the depot:
-%
-\begin{align}
-  S_{ps} \geq\; & t^{\text{start}}
-                   - M\bigl(1 - X_{0ph}\bigr) \nonumber \\
-                 & \forall\, p \in P,\; h \in H,\; s \in S
-  \label{eq:time_first}
-\end{align}
-
 \subsubsection{Session Lower Bounds}
 
 A patient's surgery cannot start before the session opens or before the
 patient's appointment time:
+
 %
 \begin{align}
-  S_{ps} &\geq A_p - M(1 - Y_{ph})
-  \qquad \forall\, p \in P,\; h \in H,\; s \in S
+  S_{ps} &\geq A_p
+  \qquad \forall\, p \in P,\; s \in S
   \label{eq:lb_appt}
 \end{align}
 
 
 \subsubsection{Waiting Time}
 
-Patient waiting time is the difference between actual start time and the
-decision-variable appointment time:
+Patient waiting time is the positive difference between the actual start time and the planned start time (appointment time):
 %
 \begin{equation}
   W_{ps} \geq S_{ps} - A_p
@@ -201,7 +197,7 @@ decision-variable appointment time:
 
 \subsubsection{Overtime}
 
-Overtime in session $h$ under scenario $s$ is the amount by which the last
+Overtime in session $h$ under scenario $s$ is the amount of time by which the last
 patient's finish time exceeds the closing time:
 %
 
@@ -215,18 +211,14 @@ patient's finish time exceeds the closing time:
 
 \subsubsection{Idle Time}
 
-Idle time is the session window minus total utilisation, corrected for
-overtime. Multiplying by $Z_h$ ensures closed sessions incur no idle time:
+The idle time is defined as the time between the end time and starting time of two consecutively scheduled surgeries minus the mandatory changeover time between two subsequent surgeries.
 %
 \begin{align}
-  I_{hs} \geq\; & \bigl(t^{\text{close}} - t^{\text{start}}\bigr) Z_h
-                  - \sum_{p \in P} d_{ps}\, Y_{ph}
-                  - c \Bigl(\sum_{p \in P} Y_{ph} - Z_h\Bigr)
-                  + O_{hs} \nonumber \\
-                & \forall\, h \in H,\; s \in S
+  I_{pp's} \geq\; & S_{p's}-S_{ps}-d_{ps}-
+                  c-M*(1-\sum_{h \in H}X_{pp'h}) \\
+                & \forall p \in P, \forall p'\in P,s \in S
   \label{eq:idle}
 \end{align}
-
 \subsubsection{Sub-Tour Elimination}
 
 Miller--Tucker--Zemlin (MTZ) constraints prevent disconnected cycles within a
@@ -241,18 +233,12 @@ session:
 \subsubsection{Domain}
 
 \begin{align}
-  & t^{\text{start}} \leq A_p \leq t^{\text{close}}
-  \qquad \forall\, p \in P
-  \label{eq:dom_appt} \\[2pt]
   & X_{h},\; Y_{ph},\; Z_h,\; V_{hq} \in \{0,1\}
   \label{eq:dom_bin} \\[2pt]
-  & D_{hq} \in \mathbb{Z}_{\geq 0}
-  \qquad \forall\, h \in H,\; q \in Q
+  & D_{hq},\; U_{ph} \in \mathbb{Z}_{\geq 0}
+  \qquad 
   \label{eq:dom_viol} \\[2pt]
-  & S_{ps},\; W_{ps},\; I_{hs},\; O_{hs} \geq 0
-  \label{eq:dom_cont} \\[2pt]
-  & U_{ph} \in \mathbb{Z}_{\geq 0}
-  \label{eq:dom_mtz}
+  & A_p,\; S_{ps},\; W_{ps},\; I_{hs},\; O_{hs} \geq 0
 \end{align}
 
 \section{Step 1: timing only}

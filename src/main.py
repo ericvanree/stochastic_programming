@@ -22,56 +22,84 @@
 # ## 1. Imports
 
 # %%
+import re
+
 import gurobipy as gp
 from gurobipy import GRB
 import numpy as np
 import pandas as pd
 
-np.random.seed(42)
-
 # %% [markdown]
-# ## 2. Problem instance
+# ## 2. Problem instance — loaded from `input/Question1Data.csv`
+#
+# One deterministic scenario using the **planned (expected) surgery durations**.
 
 # %%
+# ── Load CSV ───────────────────────────────────────────────────────────────────
+DATA_FILE = r"input\Question1Data.csv"
+df = pd.read_csv(DATA_FILE)
+print(f"Loaded {len(df)} patients across {df['Session ID'].nunique()} sessions")
+
 # ── Sets ──────────────────────────────────────────────────────────────────────
-P      = [1, 2, 3, 4]            # patients
-H      = [0, 1]                   # OR sessions
-SPECS  = ["CHI", "ORT", "KNO"]   # surgical specialties  (Q)
-n_scen = 5                        # number of SAA scenarios
-S      = list(range(n_scen))      # scenario indices
-P0     = [0] + P                  # P₀ = depot (0) ∪ patients
+P           = df["Patient ID"].tolist()                      # patients
+session_ids = sorted(df["Session ID"].unique().tolist())     # original IDs (6)
+H           = list(range(len(session_ids)))                  # sessions 0..5
+h_of        = {sid: h for h, sid in enumerate(session_ids)}  # session_id → index
+P0          = [0] + P                                        # depot (0) ∪ patients
+SPECS       = sorted(df["Specialty"].unique().tolist())      # e.g. ['CHI', 'ORT']
+
+# ── Single deterministic scenario: planned (expected) duration ─────────────────
+S  = [0]
+pi = {0: 1.0}
+d  = {(row["Patient ID"], 0): float(row["Planned surgery duration"])
+      for _, row in df.iterrows()}
 
 # ── Scalar parameters ─────────────────────────────────────────────────────────
-t_start = 480      # session opening   (08:00 in min from midnight)
-t_close = 960      # session closing   (16:00 in min from midnight)
+t_start = 480      # session opening  (08:00 in min from midnight)
+t_close = 960      # session closing  (16:00 in min from midnight)
 c       = 15       # changeover / cleaning time between patients (min)
-M_BIG   = 3_000    # big-M constant  (must exceed max feasible time horizon)
+M_BIG   = 5_000    # big-M  (safely above any feasible time horizon)
 
 # Objective weights β₁ (wait) β₂ (idle) β₃ (overtime) β₄ (specialty mismatch)
-beta = {"W": 1.0, "I": 0.5, "O": 3.0, "D": 5.0}
+beta = {"W": 0.6, "I": 0.2, "O": 0.2, "D": 100.0}
 
-# Uniform scenario probabilities  Σ πₛ = 1
-pi = {s: 1.0 / n_scen for s in S}
+# ── Specialty membership ───────────────────────────────────────────────────────
+specialty_of = {row["Patient ID"]: row["Specialty"] for _, row in df.iterrows()}
+q_pq         = {(p, q): int(specialty_of[p] == q) for p in P for q in SPECS}
 
-# Patient specialties:  q_pq[(p, q)] = 1  if patient p belongs to specialty q
-specialty_of = {1: "CHI", 2: "CHI", 3: "ORT", 4: "KNO"}
-q_pq = {(p, q): int(specialty_of[p] == q) for p in P for q in SPECS}
+# ── Patient → session assignment (from CSV) ────────────────────────────────────
+patient_to_h = {
+    row["Patient ID"]: h_of[row["Session ID"]] for _, row in df.iterrows()
+}
 
-# Surgery durations  d[(p, s)]  drawn from LogNormal around mean_dur[p] minutes
-mean_dur = {1: 90, 2: 70, 3: 110, 4: 60}
-d = {}
-for p in P:
-    draws = np.random.lognormal(mean=np.log(mean_dur[p]), sigma=0.20, size=n_scen)
-    for idx, s in enumerate(S):
-        d[p, s] = float(draws[idx])
+# ── Within-session sequences from "Session-sequence position" column ───────────
+def parse_pos(label: str) -> int:
+    """'S189-P3' → 3"""
+    return int(re.search(r'P(\d+)', label).group(1))
 
-# Display duration table
-df_dur = pd.DataFrame(
-    {f"s={s}": [round(d[p, s], 1) for p in P] for s in S},
-    index=[f"p={p}" for p in P],
-)
-print("Surgery durations (minutes):")
-print(df_dur.to_string())
+session_sequences: dict[int, list] = {h: [] for h in H}
+for _, row in df.iterrows():
+    h   = h_of[row["Session ID"]]
+    pos = parse_pos(row["Session-sequence position"])
+    session_sequences[h].append((pos, row["Patient ID"]))
+for h in H:
+    session_sequences[h].sort()
+    session_sequences[h] = [p for _, p in session_sequences[h]]
+
+# ── Display summary ────────────────────────────────────────────────────────────
+print(f"\nSpecialties : {SPECS}")
+print(f"Sessions    : {[f'{h}→ID{session_ids[h]}' for h in H]}")
+print("\nSession sequences (from CSV):")
+for h in H:
+    seq = session_sequences[h]
+    print(f"  Session {h} (ID={session_ids[h]:4d}): {seq}  ({len(seq)} patients)")
+
+df_show = df[["Patient ID", "Specialty", "Session ID",
+              "Session-sequence position", "Planned surgery duration"]].copy()
+df_show["_pos"] = df_show["Session-sequence position"].apply(parse_pos)
+df_show = df_show.sort_values(["Session ID", "_pos"]).drop(columns=["_pos"])
+print("\nPatient data:")
+print(df_show.to_string(index=False))
 
 # %% [markdown]
 # ## 3. Model builder
@@ -139,8 +167,8 @@ def build_model(name, fixed_X=None, fixed_Y=None):
     Sv = m.addVars([(p, s) for p in P for s in S], lb=0, name="S")
     # Waiting time
     W  = m.addVars([(p, s) for p in P for s in S], lb=0, name="W")
-    # Idle time per session
-    Iv = m.addVars([(h, s) for h in H for s in S], lb=0, name="I")
+    # Idle time between consecutive patient pairs
+    Iv = m.addVars([(p, pp, s) for p in P for pp in P for s in S if p != pp], lb=0, name="I")
     # Overtime per session
     Ov = m.addVars([(h, s) for h in H for s in S], lb=0, name="O")
 
@@ -149,7 +177,7 @@ def build_model(name, fixed_X=None, fixed_Y=None):
         gp.quicksum(
             pi[s] * (
                 beta["W"] * gp.quicksum(W[p, s] for p in P)
-                + beta["I"] * gp.quicksum(Iv[h, s] for h in H)
+                + beta["I"] * gp.quicksum(Iv[p, pp, s] for p in P for pp in P if p != pp)
                 + beta["O"] * gp.quicksum(Ov[h, s] for h in H)
             )
             for s in S
@@ -234,6 +262,16 @@ def build_model(name, fixed_X=None, fixed_Y=None):
         name="mtz",
     )
 
+    # First patient in a session is scheduled at opening time:
+    # A[p]  ≤  t_start + M·(1 − Σ_h X[0,p,h])
+    m.addConstrs(
+        (
+            A[p] <= t_start + M_BIG * (1 - gp.quicksum(X[0, p, h] for h in H))
+            for p in P
+        ),
+        name="start_first",
+    )
+
     # ── Second-stage constraints (replicated over all scenarios) ───────────────
 
     # Start time propagation: if p' directly follows p, respect duration + changeover
@@ -246,23 +284,10 @@ def build_model(name, fixed_X=None, fixed_Y=None):
         name="seq",
     )
 
-    # First patient in session starts no earlier than session opening
-    # S[p,s]  ≥  t_start  −  M·(1 − X[0,p,h])
-    m.addConstrs(
-        (
-            Sv[p, s] >= t_start - M_BIG * (1 - X[0, p, h])
-            for p in P for h in H for s in S
-        ),
-        name="first_pat",
-    )
-
     # Appointment lower bound: patient cannot start before their appointment
-    # S[p,s]  ≥  A[p]  −  M·(1 − Y[p,h])
+    # S[p,s]  ≥  A[p]
     m.addConstrs(
-        (
-            Sv[p, s] >= A[p] - M_BIG * (1 - Y[p, h])
-            for p in P for h in H for s in S
-        ),
+        (Sv[p, s] >= A[p] for p in P for s in S),
         name="lb_appt",
     )
 
@@ -283,20 +308,15 @@ def build_model(name, fixed_X=None, fixed_Y=None):
         name="overtime",
     )
 
-    # Idle time: session window minus utilisation, corrected for overtime
-    # I[h,s]  ≥  (t_close − t_start)·Z[h]
-    #            − Σ_p d[p,s]·Y[p,h]
-    #            − c·(Σ_p Y[p,h] − Z[h])
-    #            + O[h,s]
+    # Idle time between consecutive patients p → p':
+    # I[p,p',s]  ≥  S[p',s] − S[p,s] − d[p,s] − c − M·(1 − Σ_h X[p,p',h])
     m.addConstrs(
         (
-            Iv[h, s] >= (
-                (t_close - t_start) * Z[h]
-                - gp.quicksum(d[p, s] * Y[p, h] for p in P)
-                - c * (gp.quicksum(Y[p, h] for p in P) - Z[h])
-                + Ov[h, s]
+            Iv[p, pp, s] >= (
+                Sv[pp, s] - Sv[p, s] - d[p, s] - c
+                - M_BIG * (1 - gp.quicksum(X[p, pp, h] for h in H))
             )
-            for h in H for s in S
+            for p in P for pp in P for s in S if p != pp
         ),
         name="idle",
     )
@@ -335,7 +355,7 @@ def print_solution(m, step_name):
             # Reconstruct ordered sequence from X arcs
             seq, cur = [], 0  # start traversal from depot
             for _ in range(len(assigned)):
-                nxt = next((j for j in P if m._X[cur, j, h].X > 0.5), None)
+                nxt = next((j for j in P if j != cur and m._X[cur, j, h].X > 0.5), None)
                 if nxt is None:
                     break
                 seq.append(nxt)
@@ -356,7 +376,7 @@ def print_solution(m, step_name):
     )
     for s in S:
         wt = sum(m._W[p, s].X for p in P)
-        it = sum(m._I[h, s].X for h in H)
+        it = sum(m._I[p, pp, s].X for p in P for pp in P if p != pp)
         ot = sum(m._O[h, s].X for h in H)
         weighted = beta["W"] * wt + beta["I"] * it + beta["O"] * ot
         print(
@@ -369,61 +389,58 @@ def print_solution(m, step_name):
 
 
 # %% [markdown]
-# ## 5. Step 1 — Timing only (sequencing $X_{pp'h}$ pre-fixed)
+# ## 5. Step 1 — Timing only
 #
-# The within-session order is given: session 0 handles patients [1, 2],
-# session 1 handles patients [3, 4].  Only appointment times $A_p$ and
-# second-stage variables are optimised.
+# Both the **session assignment** and the **within-session sequence** are fixed
+# to the values read from the CSV.  Only appointment times $A_p$ and the
+# second-stage variables $(S, W, I, O)$ are optimised.
 
 # %%
-# Build predefined sequencing:
-#   session 0:  depot(0) → 1 → 2 → depot(0)
-#   session 1:  depot(0) → 3 → 4 → depot(0)
+# Build fixed X from CSV sequences:
+#   depot(0) → p1 → p2 → ... → pn → depot(0)  for each session h
+# All other arcs are set to 0.
 fixed_X_s1 = {(i, j, h): 0 for i in P0 for j in P0 for h in H if i != j}
-# Session 0
-fixed_X_s1[0, 1, 0] = 1
-fixed_X_s1[1, 2, 0] = 1
-fixed_X_s1[2, 0, 0] = 1  # return to depot
-# Session 1
-fixed_X_s1[0, 3, 1] = 1
-fixed_X_s1[3, 4, 1] = 1
-fixed_X_s1[4, 0, 1] = 1  # return to depot
+for h in H:
+    seq = session_sequences[h]
+    fixed_X_s1[0, seq[0], h] = 1                      # depot → first patient
+    for k in range(len(seq) - 1):
+        fixed_X_s1[seq[k], seq[k + 1], h] = 1         # sequential arcs
+    fixed_X_s1[seq[-1], 0, h] = 1                     # last patient → depot (flow balance)
 
 m1 = build_model("Step1_TimingOnly", fixed_X=fixed_X_s1)
-m1.setParam("TimeLimit", 60)
+m1.setParam("TimeLimit", 120)
 m1.optimize()
-print_solution(m1, "Step 1 — Timing only (X fixed)")
+print_solution(m1, "Step 1 — Timing only (session + sequence fixed from CSV)")
 
 # %% [markdown]
-# ## 6. Step 2 — Sequencing + timing ($Y_{ph}$ pre-fixed)
+# ## 6. Step 2 — Sequencing + timing
 #
-# Patient-to-session assignment is fixed: patients {1, 2} → session 0,
-# patients {3, 4} → session 1.  Within-session sequence is optimised.
+# Only the **session assignment** ($Y_{ph}$) is fixed to the CSV values.
+# The within-session sequence and appointment times are optimised freely.
 
 # %%
+# Fix Y from CSV assignment; sequence (X) is free.
 fixed_Y_s2 = {(p, h): 0 for p in P for h in H}
-fixed_Y_s2[1, 0] = 1
-fixed_Y_s2[2, 0] = 1
-fixed_Y_s2[3, 1] = 1
-fixed_Y_s2[4, 1] = 1
+for p in P:
+    fixed_Y_s2[p, patient_to_h[p]] = 1
 
 m2 = build_model("Step2_SeqTiming", fixed_Y=fixed_Y_s2)
-m2.setParam("TimeLimit", 60)
+m2.setParam("TimeLimit", 120)
 m2.optimize()
-print_solution(m2, "Step 2 — Sequencing + timing (Y fixed)")
+print_solution(m2, "Step 2 — Sequencing + timing (session fixed from CSV, sequence free)")
 
 # %% [markdown]
 # ## 7. Step 3 — Full MILP
 #
-# All first-stage decisions are free.  Gurobi solves the complete
-# deterministic equivalent simultaneously.
+# All first-stage decisions are free.  Gurobi optimises session assignment,
+# sequence, and appointment times simultaneously.
 
 # %%
 m3 = build_model("Step3_FullMILP")
-m3.setParam("TimeLimit", 120)
+m3.setParam("TimeLimit", 300)
 m3.setParam("MIPGap", 0.01)
 m3.optimize()
-print_solution(m3, "Step 3 — Full MILP")
+print_solution(m3, "Step 3 — Full MILP (all decisions free)")
 
 # %% [markdown]
 # ## 8. Objective comparison
