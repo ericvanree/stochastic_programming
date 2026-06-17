@@ -2,3 +2,4 @@ gurobipy
 numpy
 pandas
 plotly
+scipy

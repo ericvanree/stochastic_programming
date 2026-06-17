@@ -23,6 +23,10 @@
 
 # %%
 import re
+import sys
+import os
+
+sys.path.insert(0, os.path.dirname(__file__))  # ensure src/ is on path
 
 import gurobipy as gp
 from gurobipy import GRB
@@ -30,32 +34,47 @@ import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
 
+from sampling import generate_scenarios
+
 # %% [markdown]
 # ## 2. Problem instance — loaded from `input/Question1Data.csv`
 #
-# One deterministic scenario using the **planned (expected) surgery durations**.
+# **Scenario parameters** — change these to control sampling:
+# - `N_SCENARIOS = 0` → deterministic (single scenario at expected duration)
+# - `N_SCENARIOS = k` → draw k samples using the chosen method
+# - `SAMPLING_METHOD` → `'expected'` | `'random'` | `'lhs'` | `'ortho'` | `'is'`
 
 # %%
-# ── Load CSV ───────────────────────────────────────────────────────────────────
+# ══ Scenario parameters ═════════════════════════════════════════════════════════════════
+N_SCENARIOS     = 4           # 0 = deterministic expected duration
+SAMPLING_METHOD = "random"    # 'expected' | 'random' | 'lhs' | 'ortho' | 'is'
+RANDOM_SEED     = 42
+
+# ══ Load CSV ═════════════════════════════════════════════════════════════════
 DATA_FILE = r"input\Question1Data.csv"
 df = pd.read_csv(DATA_FILE)
 print(f"Loaded {len(df)} patients across {df['Session ID'].nunique()} sessions")
 
-# ── Sets ──────────────────────────────────────────────────────────────────────
-P           = df["Patient ID"].tolist()                      # patients
-session_ids = sorted(df["Session ID"].unique().tolist())     # original IDs (6)
-H           = list(range(len(session_ids)))                  # sessions 0..5
-h_of        = {sid: h for h, sid in enumerate(session_ids)}  # session_id → index
-P0          = [0] + P                                        # depot (0) ∪ patients
-SPECS       = sorted(df["Specialty"].unique().tolist())      # e.g. ['CHI', 'ORT']
+# ══ Sets ══════════════════════════════════════════════════════════════════════
+P           = df["Patient ID"].tolist()
+session_ids = sorted(df["Session ID"].unique().tolist())
+H           = list(range(len(session_ids)))
+h_of        = {sid: h for h, sid in enumerate(session_ids)}
+P0          = [0] + P
+SPECS       = sorted(df["Specialty"].unique().tolist())
 
-# ── Single deterministic scenario: planned (expected) duration ─────────────────
-S  = [0]
-pi = {0: 1.0}
-d  = {(row["Patient ID"], 0): float(row["Planned surgery duration"])
-      for _, row in df.iterrows()}
+# ══ Scenario generation ══════════════════════════════════════════════════════════════
+d, S, pi = generate_scenarios(df, N_SCENARIOS, SAMPLING_METHOD, RANDOM_SEED)
+print(f"Scenarios   : {len(S)}  (method='{SAMPLING_METHOD}')")
+if len(S) <= 5:
+    dur_rows = pd.DataFrame(
+        {f"s={s}": [round(d[p, s], 1) for p in P] for s in S},
+        index=P,
+    )
+    print("\nDuration matrix (minutes):")
+    print(dur_rows.to_string())
 
-# ── Scalar parameters ─────────────────────────────────────────────────────────
+# ══ Scalar parameters ═════════════════════════════════════════════════════════
 t_start = 480      # session opening  (08:00 in min from midnight)
 t_close = 960      # session closing  (16:00 in min from midnight)
 c       = 10       # changeover / cleaning time between patients (min)
@@ -64,16 +83,16 @@ M_BIG   = 5_000    # big-M  (safely above any feasible time horizon)
 # Objective weights β₁ (wait) β₂ (idle) β₃ (overtime) β₄ (specialty mismatch)
 beta = {"W": 0.6, "I": 0.2, "O": 0.2, "D": 100.0}
 
-# ── Specialty membership ───────────────────────────────────────────────────────
+# ══ Specialty membership ═══════════════════════════════════════════════════════
 specialty_of = {row["Patient ID"]: row["Specialty"] for _, row in df.iterrows()}
 q_pq         = {(p, q): int(specialty_of[p] == q) for p in P for q in SPECS}
 
-# ── Patient → session assignment (from CSV) ────────────────────────────────────
+# ══ Patient → session assignment (from CSV) ════════════════════════════════════
 patient_to_h = {
     row["Patient ID"]: h_of[row["Session ID"]] for _, row in df.iterrows()
 }
 
-# ── Within-session sequences from "Session-sequence position" column ───────────
+# ══ Within-session sequences from "Session-sequence position" column ═══════════
 def parse_pos(label: str) -> int:
     """'S189-P3' → 3"""
     return int(re.search(r'P(\d+)', label).group(1))
@@ -87,7 +106,7 @@ for h in H:
     session_sequences[h].sort()
     session_sequences[h] = [p for _, p in session_sequences[h]]
 
-# ── Display summary ────────────────────────────────────────────────────────────
+# ══ Display summary ════════════════════════════════════════════════════════════
 print(f"\nSpecialties : {SPECS}")
 print(f"Sessions    : {[f'{h}→ID{session_ids[h]}' for h in H]}")
 print("\nSession sequences (from CSV):")
@@ -96,7 +115,7 @@ for h in H:
     print(f"  Session {h} (ID={session_ids[h]:4d}): {seq}  ({len(seq)} patients)")
 
 df_show = df[["Patient ID", "Specialty", "Session ID",
-              "Session-sequence position", "Planned surgery duration"]].copy()
+              "Session-sequence position", "expected_duration", "sigma_error"]].copy()
 df_show["_pos"] = df_show["Session-sequence position"].apply(parse_pos)
 df_show = df_show.sort_values(["Session ID", "_pos"]).drop(columns=["_pos"])
 print("\nPatient data:")
