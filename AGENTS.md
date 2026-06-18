@@ -17,7 +17,10 @@ src/
   main.py        # Problem data loading, model construction (build_model), solve & visualise
   sampling.py    # Scenario generation: generate_scenarios() dispatcher + 4 methods
 input/
-  Question1Data.csv   # Patient data (ID, Specialty, Session ID, expected_duration, sigma_error)
+  sample_wl4.csv      # Patient data — workload 4  (ID, Specialty, Session ID, expected_duration, sigma_error)
+  sample_wl7.csv      # Patient data — workload 7
+  sample_wl10.csv     # Patient data — workload 10
+  sample_wl13.csv     # Patient data — workload 13
 output/          # Generated plots and results land here (gitkeep only)
 report/          # LaTeX report (main.tex, formula.tex, etc.)
 requirements.txt # gurobipy, numpy, pandas, plotly, scipy
@@ -39,6 +42,7 @@ The script is structured as a Jupyter-style percent-cell file (`# %%`) and can a
 
 | Parameter | Default | Effect |
 |-----------|---------|--------|
+| `WORKLOAD` | `4` | Selects input file: `4` \| `7` \| `10` \| `13` → `input/sample_wlX.csv` |
 | `N_SCENARIOS` | `11` | `0` = deterministic (single expected-value scenario); `k > 0` = draw k samples |
 | `SAMPLING_METHOD` | `"is"` | `"expected"` \| `"random"` \| `"lhs"` \| `"is"` |
 | `RANDOM_SEED` | `42` | Controls all stochastic draws |

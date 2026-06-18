@@ -37,7 +37,7 @@ import plotly.graph_objects as go
 from sampling import generate_scenarios
 
 # %% [markdown]
-# ## 2. Problem instance — loaded from `input/Question1Data.csv`
+# ## 2. Problem instance — loaded from `input/sample_wlX.csv`
 #
 # **Scenario parameters** — change these to control sampling:
 # - `N_SCENARIOS = 0` → deterministic (single scenario at expected duration)
@@ -51,7 +51,9 @@ SAMPLING_METHOD = "is"    # 'expected' | 'random' | 'lhs' | 'is'
 RANDOM_SEED     = 42
 
 # ══ Load CSV ═════════════════════════════════════════════════════════════════
-DATA_FILE = r"input\Question1Data.csv"
+# Available workloads: sample_wl4.csv, sample_wl7.csv, sample_wl10.csv, sample_wl13.csv
+WORKLOAD = 4   # choose 4 | 7 | 10 | 13
+DATA_FILE = rf"input\sample_wl{WORKLOAD}.csv"
 df = pd.read_csv(DATA_FILE)
 print(f"Loaded {len(df)} patients across {df['Session ID'].nunique()} sessions")
 
