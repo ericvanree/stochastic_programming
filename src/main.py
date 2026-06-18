@@ -42,12 +42,12 @@ from sampling import generate_scenarios
 # **Scenario parameters** — change these to control sampling:
 # - `N_SCENARIOS = 0` → deterministic (single scenario at expected duration)
 # - `N_SCENARIOS = k` → draw k samples using the chosen method
-# - `SAMPLING_METHOD` → `'expected'` | `'random'` | `'lhs'` | `'ortho'` | `'is'`
+# - `SAMPLING_METHOD` → `'expected'` | `'random'` | `'lhs'` | `'is'`
 
 # %%
 # ══ Scenario parameters ═════════════════════════════════════════════════════════════════
-N_SCENARIOS     = 4           # 0 = deterministic expected duration
-SAMPLING_METHOD = "random"    # 'expected' | 'random' | 'lhs' | 'ortho' | 'is'
+N_SCENARIOS     = 11           # 0 = deterministic expected duration
+SAMPLING_METHOD = "is"    # 'expected' | 'random' | 'lhs' | 'is'
 RANDOM_SEED     = 42
 
 # ══ Load CSV ═════════════════════════════════════════════════════════════════
@@ -453,12 +453,13 @@ def extract_solution(m):
     for p in P:
         h_assigned = next((h for h in H if m._Y[p, h].X > 0.5), None)
         patients[p] = {
-            "session":     h_assigned,
-            "specialty":   specialty_of[p],
-            "appointment": m._A[p].X,
-            "duration":    {s: d[p, s] for s in S},
-            "start":       {s: m._S[p, s].X for s in S},
-            "wait":        {s: m._W[p, s].X for s in S},
+            "session":           h_assigned,
+            "specialty":         specialty_of[p],
+            "appointment":       m._A[p].X,
+            "expected_duration": float(df.loc[df["Patient ID"] == p, "expected_duration"].iloc[0]),
+            "duration":          {s: d[p, s] for s in S},
+            "start":             {s: m._S[p, s].X for s in S},
+            "wait":              {s: m._W[p, s].X for s in S},
         }
 
     return {"sessions": sessions, "patients": patients, "scenarios": list(S)}
@@ -511,14 +512,29 @@ def plot_dashboard(sol, title):
                     marker=dict(color=color, opacity=0.85,
                                 line=dict(color="white", width=1)),
                     text=(f"<b>Patient {p}</b><br>"
-                          f"Specialty : {pspec}<br>"
-                          f"Appt      : {int(appt)} min  ({appt/60:.2f} h)<br>"
-                          f"Start     : {int(start)} min  ({start/60:.2f} h)<br>"
-                          f"Duration  : {int(dur)} min<br>"
-                          f"Wait      : {wait:.1f} min"),
+                          f"Specialty        : {pspec}<br>"
+                          f"Appt             : {int(appt)} min  ({appt/60:.2f}\u202fh)<br>"
+                          f"Start            : {int(start)} min  ({start/60:.2f}\u202fh)<br>"
+                          f"Duration (sample): {int(dur)} min<br>"
+                          f"Duration (expect): {int(pat['expected_duration'])} min<br>"
+                          f"Wait             : {wait:.1f} min"),
                     hovertemplate="%{text}<extra></extra>",
                     visible=(s == scenarios[0]),
                     showlegend=False, name=f"s{s}_p{p}",
+                ))
+
+                # Expected-end marker: thin red bar at start + expected_duration
+                exp_end = start + pat["expected_duration"]
+                fig.add_trace(go.Bar(
+                    x=[2], y=[row_label(h)], base=[exp_end - 1],
+                    orientation="h",
+                    marker=dict(color="red", opacity=1.0, line=dict(width=0)),
+                    hovertemplate=(
+                        f"Patient {p} — expected end: {int(exp_end)} min"
+                        f"  ({exp_end/60:.2f}\u202fh)<extra></extra>"
+                    ),
+                    visible=(s == scenarios[0]),
+                    showlegend=False, name=f"expend_s{s}_p{p}",
                 ))
 
                 # Appointment marker: 2-min wide black bar
@@ -548,6 +564,11 @@ def plot_dashboard(sol, title):
         marker_color="black",
         name="Appointment", showlegend=True, visible=True, hoverinfo="skip",
     ))
+    fig.add_trace(go.Bar(
+        x=[0], y=[""], orientation="h",
+        marker_color="red",
+        name="Expected end", showlegend=True, visible=True, hoverinfo="skip",
+    ))
     leg_end = len(fig.data)
 
     # ── 4. Dropdown buttons ────────────────────────────────────────────────────────
@@ -567,7 +588,16 @@ def plot_dashboard(sol, title):
         ))
 
     # ── 5. Layout ───────────────────────────────────────────────────────────────
-    tick_vals = list(range(t_start, t_close + 1, 60))
+    # Upper bound: latest actual end, latest expected end, or t_close (whichever is greatest)
+    max_end = t_close
+    for p in P:
+        pat = sol["patients"][p]
+        for s in scenarios:
+            max_end = max(max_end, pat["start"][s] + pat["duration"][s])
+        max_end = max(max_end, pat["appointment"] + pat["expected_duration"])
+
+    x_upper = int(max_end) + 15
+    tick_vals = list(range(t_start, x_upper + 60, 60))
     tick_text = [f"{v // 60:02d}:00" for v in tick_vals]
 
     fig.update_layout(
@@ -579,7 +609,7 @@ def plot_dashboard(sol, title):
             tickmode="array",
             tickvals=tick_vals,
             ticktext=tick_text,
-            range=[t_start - 15, t_close + 15],
+            range=[t_start - 15, x_upper],
             gridcolor="lightgray",
             showgrid=True,
         ),
