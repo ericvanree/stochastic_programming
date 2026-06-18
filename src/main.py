@@ -45,95 +45,115 @@ from sampling import generate_scenarios
 # - `SAMPLING_METHOD` → `'expected'` | `'random'` | `'lhs'` | `'is'`
 
 # %%
-# ══ Scenario parameters ═════════════════════════════════════════════════════════════════
-N_SCENARIOS     = 11           # 0 = deterministic expected duration
-SAMPLING_METHOD = "is"    # 'expected' | 'random' | 'lhs' | 'is'
-RANDOM_SEED     = 42
+if __name__ == "__main__":
+    # ══ Scenario parameters ════════════════════════════════════════════════════
+    N_SCENARIOS     = 11           # 0 = deterministic expected duration
+    SAMPLING_METHOD = "is"    # 'expected' | 'random' | 'lhs' | 'is'
+    RANDOM_SEED     = 42
 
-# ══ Load CSV ═════════════════════════════════════════════════════════════════
-# Available workloads: sample_wl4.csv, sample_wl7.csv, sample_wl10.csv, sample_wl13.csv
-WORKLOAD = 4   # choose 4 | 7 | 10 | 13
-DATA_FILE = rf"input\sample_wl{WORKLOAD}.csv"
-df = pd.read_csv(DATA_FILE)
-print(f"Loaded {len(df)} patients across {df['Session ID'].nunique()} sessions")
+    # ══ Load CSV ═══════════════════════════════════════════════════════════════
+    # Available workloads: sample_wl4.csv, sample_wl7.csv, sample_wl10.csv, sample_wl13.csv
+    WORKLOAD = 4   # choose 4 | 7 | 10 | 13
+    DATA_FILE = rf"input\sample_wl{WORKLOAD}.csv"
+    df = pd.read_csv(DATA_FILE)
+    print(f"Loaded {len(df)} patients across {df['Session ID'].nunique()} sessions")
 
-# ══ Sets ══════════════════════════════════════════════════════════════════════
-P           = df["Patient ID"].tolist()
-session_ids = sorted(df["Session ID"].unique().tolist())
-H           = list(range(len(session_ids)))
-h_of        = {sid: h for h, sid in enumerate(session_ids)}
-P0          = [0] + P
-SPECS       = sorted(df["Specialty"].unique().tolist())
+    # ══ Sets ═══════════════════════════════════════════════════════════════════
+    P           = df["Patient ID"].tolist()
+    session_ids = sorted(df["Session ID"].unique().tolist())
+    H           = list(range(len(session_ids)))
+    h_of        = {sid: h for h, sid in enumerate(session_ids)}
+    P0          = [0] + P
+    SPECS       = sorted(df["Specialty"].unique().tolist())
 
-# ══ Scenario generation ══════════════════════════════════════════════════════════════
-d, S, pi = generate_scenarios(df, N_SCENARIOS, SAMPLING_METHOD, RANDOM_SEED)
-print(f"Scenarios   : {len(S)}  (method='{SAMPLING_METHOD}')")
-if len(S) <= 5:
-    dur_rows = pd.DataFrame(
-        {f"s={s}": [round(d[p, s], 1) for p in P] for s in S},
-        index=P,
-    )
-    print("\nDuration matrix (minutes):")
-    print(dur_rows.to_string())
+    # ══ Scenario generation ════════════════════════════════════════════════════
+    d, S, pi = generate_scenarios(df, N_SCENARIOS, SAMPLING_METHOD, RANDOM_SEED)
+    print(f"Scenarios   : {len(S)}  (method='{SAMPLING_METHOD}')")
+    if len(S) <= 5:
+        dur_rows = pd.DataFrame(
+            {f"s={s}": [round(d[p, s], 1) for p in P] for s in S},
+            index=P,
+        )
+        print("\nDuration matrix (minutes):")
+        print(dur_rows.to_string())
 
-# ══ Scalar parameters ═════════════════════════════════════════════════════════
-t_start = 480      # session opening  (08:00 in min from midnight)
-t_close = 960      # session closing  (16:00 in min from midnight)
-c       = 10       # changeover / cleaning time between patients (min)
-M_BIG   = 5_000    # big-M  (safely above any feasible time horizon)
+    # ══ Scalar parameters ══════════════════════════════════════════════════════
+    t_start = 480      # session opening  (08:00 in min from midnight)
+    t_close = 960      # session closing  (16:00 in min from midnight)
+    c       = 10       # changeover / cleaning time between patients (min)
+    M_BIG   = 5_000    # big-M  (safely above any feasible time horizon)
 
-# Objective weights β₁ (wait) β₂ (idle) β₃ (overtime) β₄ (specialty mismatch)
-beta = {"W": 0.6, "I": 0.2, "O": 0.2, "D": 100.0}
+    # Objective weights β₁ (wait) β₂ (idle) β₃ (overtime) β₄ (specialty mismatch)
+    beta = {"W": 0.6, "I": 0.2, "O": 0.2, "D": 100.0}
 
-# ══ Specialty membership ═══════════════════════════════════════════════════════
-specialty_of = {row["Patient ID"]: row["Specialty"] for _, row in df.iterrows()}
-q_pq         = {(p, q): int(specialty_of[p] == q) for p in P for q in SPECS}
+    # ══ Specialty membership ═══════════════════════════════════════════════════
+    specialty_of = {row["Patient ID"]: row["Specialty"] for _, row in df.iterrows()}
+    q_pq         = {(p, q): int(specialty_of[p] == q) for p in P for q in SPECS}
 
-# ══ Patient → session assignment (from CSV) ════════════════════════════════════
-patient_to_h = {
-    row["Patient ID"]: h_of[row["Session ID"]] for _, row in df.iterrows()
-}
+    # ══ Patient → session assignment (from CSV) ════════════════════════════════
+    patient_to_h = {
+        row["Patient ID"]: h_of[row["Session ID"]] for _, row in df.iterrows()
+    }
 
-# ══ Within-session sequences from "Session-sequence position" column ═══════════
-def parse_pos(label: str) -> int:
-    """'S189-P3' → 3"""
-    return int(re.search(r'P(\d+)', label).group(1))
+    # ══ Within-session sequences from "Session-sequence position" column ═══════
+    def parse_pos(label: str) -> int:
+        """'S189-P3' → 3"""
+        return int(re.search(r'P(\d+)', label).group(1))
 
-session_sequences: dict[int, list] = {h: [] for h in H}
-for _, row in df.iterrows():
-    h   = h_of[row["Session ID"]]
-    pos = parse_pos(row["Session-sequence position"])
-    session_sequences[h].append((pos, row["Patient ID"]))
-for h in H:
-    session_sequences[h].sort()
-    session_sequences[h] = [p for _, p in session_sequences[h]]
+    session_sequences: dict[int, list] = {h: [] for h in H}
+    for _, row in df.iterrows():
+        h   = h_of[row["Session ID"]]
+        pos = parse_pos(row["Session-sequence position"])
+        session_sequences[h].append((pos, row["Patient ID"]))
+    for h in H:
+        session_sequences[h].sort()
+        session_sequences[h] = [p for _, p in session_sequences[h]]
 
-# ══ Display summary ════════════════════════════════════════════════════════════
-print(f"\nSpecialties : {SPECS}")
-print(f"Sessions    : {[f'{h}→ID{session_ids[h]}' for h in H]}")
-print("\nSession sequences (from CSV):")
-for h in H:
-    seq = session_sequences[h]
-    print(f"  Session {h} (ID={session_ids[h]:4d}): {seq}  ({len(seq)} patients)")
+    # ══ Display summary ════════════════════════════════════════════════════════
+    print(f"\nSpecialties : {SPECS}")
+    print(f"Sessions    : {[f'{h}→ID{session_ids[h]}' for h in H]}")
+    print("\nSession sequences (from CSV):")
+    for h in H:
+        seq = session_sequences[h]
+        print(f"  Session {h} (ID={session_ids[h]:4d}): {seq}  ({len(seq)} patients)")
 
-df_show = df[["Patient ID", "Specialty", "Session ID",
-              "Session-sequence position", "expected_duration", "sigma_error"]].copy()
-df_show["_pos"] = df_show["Session-sequence position"].apply(parse_pos)
-df_show = df_show.sort_values(["Session ID", "_pos"]).drop(columns=["_pos"])
-print("\nPatient data:")
-print(df_show.to_string(index=False))
+    df_show = df[["Patient ID", "Specialty", "Session ID",
+                  "Session-sequence position", "expected_duration", "sigma_error"]].copy()
+    df_show["_pos"] = df_show["Session-sequence position"].apply(parse_pos)
+    df_show = df_show.sort_values(["Session ID", "_pos"]).drop(columns=["_pos"])
+    print("\nPatient data:")
+    print(df_show.to_string(index=False))
 
 # %% [markdown]
 # ## 3. Model builder
 
 # %%
-def build_model(name, fixed_X=None, fixed_Y=None):
+def build_model(
+    name,
+    P, P0, H, S, d, pi,
+    SPECS, q_pq,
+    beta, t_start, t_close, c, M_BIG,
+    fixed_X=None, fixed_Y=None,
+):
     """
     Build the two-stage stochastic OR scheduling deterministic equivalent.
 
     Parameters
     ----------
     name    : str   — Gurobi model name / step label
+    P       : list  — patient IDs
+    P0      : list  — [0] + P  (depot + patients)
+    H       : list  — session indices
+    S       : list  — scenario indices
+    d       : dict  — {(patient_id, scenario_idx): float}  duration
+    pi      : dict  — {scenario_idx: float}  scenario probability
+    SPECS   : list  — specialty labels
+    q_pq    : dict  — {(patient_id, specialty): 0/1}  membership
+    beta    : dict  — {"W", "I", "O", "D"}  objective weights
+    t_start : int   — session opening time (minutes)
+    t_close : int   — session closing time (minutes)
+    c       : int   — changeover time (minutes)
+    M_BIG   : float — big-M constant
     fixed_X : dict  — optional {(i, j, h): 0/1} — fixes the entire X matrix
                       (Step 1: timing only)
     fixed_Y : dict  — optional {(p, h): 0/1}    — fixes the entire Y matrix
@@ -650,72 +670,87 @@ def plot_dashboard(sol, title):
 # second-stage variables $(S, W, I, O)$ are optimised.
 
 # %%
-# Build fixed X from CSV sequences:
-#   depot(0) → p1 → p2 → ... → pn → depot(0)  for each session h
-# All other arcs are set to 0.
-fixed_X_s1 = {(i, j, h): 0 for i in P0 for j in P0 for h in H if i != j}
-for h in H:
-    seq = session_sequences[h]
-    fixed_X_s1[0, seq[0], h] = 1                      # depot → first patient
-    for k in range(len(seq) - 1):
-        fixed_X_s1[seq[k], seq[k + 1], h] = 1         # sequential arcs
-    fixed_X_s1[seq[-1], 0, h] = 1                     # last patient → depot (flow balance)
+if __name__ == "__main__":
+    # Build fixed X from CSV sequences:
+    #   depot(0) → p1 → p2 → ... → pn → depot(0)  for each session h
+    # All other arcs are set to 0.
+    fixed_X_s1 = {(i, j, h): 0 for i in P0 for j in P0 for h in H if i != j}
+    for h in H:
+        seq = session_sequences[h]
+        fixed_X_s1[0, seq[0], h] = 1                      # depot → first patient
+        for k in range(len(seq) - 1):
+            fixed_X_s1[seq[k], seq[k + 1], h] = 1         # sequential arcs
+        fixed_X_s1[seq[-1], 0, h] = 1                     # last patient → depot (flow balance)
 
-m1 = build_model("Step1_TimingOnly", fixed_X=fixed_X_s1)
-m1.setParam("TimeLimit", 120)
-m1.optimize()
-print_solution(m1, "Step 1 — Timing only (session + sequence fixed from CSV)")
-sol1 = extract_solution(m1)
-plot_dashboard(sol1, "Step 1 — Timing only")
+    m1 = build_model(
+        "Step1_TimingOnly",
+        P, P0, H, S, d, pi,
+        SPECS, q_pq,
+        beta, t_start, t_close, c, M_BIG,
+        fixed_X=fixed_X_s1,
+    )
+    m1.setParam("TimeLimit", 120)
+    m1.optimize()
+    print_solution(m1, "Step 1 — Timing only (session + sequence fixed from CSV)")
+    sol1 = extract_solution(m1)
+    plot_dashboard(sol1, "Step 1 — Timing only")
 
-# %% [markdown]
-# ## 6. Step 2 — Sequencing + timing
-#
-# Only the **session assignment** ($Y_{ph}$) is fixed to the CSV values.
-# The within-session sequence and appointment times are optimised freely.
+    # %% [markdown]
+    # ## 6. Step 2 — Sequencing + timing
+    #
+    # Only the **session assignment** ($Y_{ph}$) is fixed to the CSV values.
+    # The within-session sequence and appointment times are optimised freely.
 
-# %%
-# Fix Y from CSV assignment; sequence (X) is free.
-fixed_Y_s2 = {(p, h): 0 for p in P for h in H}
-for p in P:
-    fixed_Y_s2[p, patient_to_h[p]] = 1
+    # Fix Y from CSV assignment; sequence (X) is free.
+    fixed_Y_s2 = {(p, h): 0 for p in P for h in H}
+    for p in P:
+        fixed_Y_s2[p, patient_to_h[p]] = 1
 
-m2 = build_model("Step2_SeqTiming", fixed_Y=fixed_Y_s2)
-m2.setParam("TimeLimit", 120)
-m2.optimize()
-print_solution(m2, "Step 2 — Sequencing + timing (session fixed from CSV, sequence free)")
-sol2 = extract_solution(m2)
-plot_dashboard(sol2, "Step 2 — Sequencing + timing")
+    m2 = build_model(
+        "Step2_SeqTiming",
+        P, P0, H, S, d, pi,
+        SPECS, q_pq,
+        beta, t_start, t_close, c, M_BIG,
+        fixed_Y=fixed_Y_s2,
+    )
+    m2.setParam("TimeLimit", 120)
+    m2.optimize()
+    print_solution(m2, "Step 2 — Sequencing + timing (session fixed from CSV, sequence free)")
+    sol2 = extract_solution(m2)
+    plot_dashboard(sol2, "Step 2 — Sequencing + timing")
 
-# %% [markdown]
-# ## 7. Step 3 — Full MILP
-#
-# All first-stage decisions are free.  Gurobi optimises session assignment,
-# sequence, and appointment times simultaneously.
+    # %% [markdown]
+    # ## 7. Step 3 — Full MILP
+    #
+    # All first-stage decisions are free.  Gurobi optimises session assignment,
+    # sequence, and appointment times simultaneously.
 
-# %%
-m3 = build_model("Step3_FullMILP")
-m3.setParam("TimeLimit", 300)
-m3.setParam("MIPGap", 0.01)
-m3.optimize()
-print_solution(m3, "Step 3 — Full MILP (all decisions free)")
-sol3 = extract_solution(m3)
-plot_dashboard(sol3, "Step 3 — Full MILP")
+    m3 = build_model(
+        "Step3_FullMILP",
+        P, P0, H, S, d, pi,
+        SPECS, q_pq,
+        beta, t_start, t_close, c, M_BIG,
+    )
+    m3.setParam("TimeLimit", 300)
+    m3.setParam("MIPGap", 0.01)
+    m3.optimize()
+    print_solution(m3, "Step 3 — Full MILP (all decisions free)")
+    sol3 = extract_solution(m3)
+    plot_dashboard(sol3, "Step 3 — Full MILP")
 
-# %% [markdown]
-# ## 8. Objective comparison
-#
-# Step 3 ≤ Step 2 ≤ Step 1 because each step relaxes constraints:
-# more freedom ⟹ lower or equal optimal objective.
+    # %% [markdown]
+    # ## 8. Objective comparison
+    #
+    # Step 3 ≤ Step 2 ≤ Step 1 because each step relaxes constraints:
+    # more freedom ⟹ lower or equal optimal objective.
 
-# %%
-print("\nObjective value comparison:")
-for label, model in [
-    ("Step 1  (X fixed, timing only)   ", m1),
-    ("Step 2  (Y fixed, seq + timing)  ", m2),
-    ("Step 3  (full MILP)              ", m3),
-]:
-    if model.SolCount > 0:
-        print(f"  {label}: {model.ObjVal:.4f}")
-    else:
-        print(f"  {label}: no feasible solution")
+    print("\nObjective value comparison:")
+    for label, model in [
+        ("Step 1  (X fixed, timing only)   ", m1),
+        ("Step 2  (Y fixed, seq + timing)  ", m2),
+        ("Step 3  (full MILP)              ", m3),
+    ]:
+        if model.SolCount > 0:
+            print(f"  {label}: {model.ObjVal:.4f}")
+        else:
+            print(f"  {label}: no feasible solution")
