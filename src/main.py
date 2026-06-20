@@ -8,10 +8,10 @@
 # | Stage | Variables | Decided |
 # |-------|-----------|---------|
 # | First | $A_p, X_{pp'h}, Y_{ph}, Z_h, V_{hq}, D_{hq}, U_{ph}$ | Before scenario realisation |
-# | Second | $S_{ps}, W_{ps}, I_{hs}, O_{hs}$ | Per scenario $s$ |
+# | Second | $S_{ps}, W_{ps}, I_{pp's}, O_{hs}$ | Per scenario $s$ |
 #
 # ### Objective
-# $$\min \sum_{s} \pi_s \bigl[\beta_1 \sum_p W_{ps} + \beta_2 \sum_h I_{hs} + \beta_3 \sum_h O_{hs}\bigr] + \beta_4 \sum_h \sum_q D_{hq}$$
+# $$\min \sum_{s} \pi_s \bigl[\beta_1 \sum_p W_{ps} + \beta_2 \sum_p\sum_{p'\neq p} I_{pp's} + \beta_3 \sum_h O_{hs}\bigr] + \beta_4 \sum_h \sum_q D_{hq}$$
 #
 # ### Three progressive steps (from `formula.tex`)
 # 1. **Timing only** — sequencing $X_{pp'h}$ pre-fixed
@@ -237,6 +237,19 @@ def build_model(
         for key, val in fixed_Y.items():
             Y[key].lb = Y[key].ub = float(val)
 
+    # ── Per-constraint tight big-M values ─────────────────────────────────────
+    # Derived from actual scenario durations; much tighter than the global M_BIG,
+    # which improves LP-relaxation quality and branch-and-bound performance.
+
+    # Largest duration in any (patient, scenario) pair
+    max_d   = max(d.values()) if d else float(M_BIG)
+    # Temporal horizon: worst-case schedule length (all |P| patients in sequence)
+    M_time  = float(len(P) * (max_d + c))
+    # Appointment bound: A_p − t_start ≤ t_close − t_start  (exact tight)
+    M_first = float(t_close - t_start)
+    # Violation count: ∑_p Y[p,h]·q[p,q] ≤ |P|  (exact tight)
+    M_viol  = float(len(P))
+
     # ── First-stage constraints ────────────────────────────────────────────────
 
     # Each patient assigned to exactly one session
@@ -262,7 +275,7 @@ def build_model(
     m.addConstrs(
         (
             gp.quicksum(q_pq[p, q] * Y[p, h] for p in P)
-            <= M_BIG * V[h, q] + D[h, q]
+            <= M_viol * V[h, q] + D[h, q]
             for h in H for q in SPECS
         ),
         name="viol",
@@ -308,7 +321,7 @@ def build_model(
     # A[p]  ≤  t_start + M·(1 − Σ_h X[0,p,h])
     m.addConstrs(
         (
-            A[p] <= t_start + M_BIG * (1 - gp.quicksum(X[0, p, h] for h in H))
+            A[p] <= t_start + M_first * (1 - gp.quicksum(X[0, p, h] for h in H))
             for p in P
         ),
         name="start_first",
@@ -320,7 +333,7 @@ def build_model(
     # S[p',s]  ≥  S[p,s] + d[p,s] + c  −  M·(1 − X[p,p',h])
     m.addConstrs(
         (
-            Sv[pp, s] >= Sv[p, s] + d[p, s] + c - M_BIG * (1 - X[p, pp, h])
+            Sv[pp, s] >= Sv[p, s] + d[p, s] + c - M_time * (1 - X[p, pp, h])
             for p in P for pp in P for h in H for s in S if p != pp
         ),
         name="seq",
@@ -344,7 +357,7 @@ def build_model(
     # O[h,s]  ≥  S[p,s] + d[p,s] − t_close  −  M·(1 − Y[p,h])
     m.addConstrs(
         (
-            Ov[h, s] >= Sv[p, s] + d[p, s] - t_close - M_BIG * (1 - Y[p, h])
+            Ov[h, s] >= Sv[p, s] + d[p, s] - t_close - M_time * (1 - Y[p, h])
             for p in P for h in H for s in S
         ),
         name="overtime",
@@ -356,7 +369,7 @@ def build_model(
         (
             Iv[p, pp, s] >= (
                 Sv[pp, s] - Sv[p, s] - d[p, s] - c
-                - M_BIG * (1 - gp.quicksum(X[p, pp, h] for h in H))
+                - M_time * (1 - gp.quicksum(X[p, pp, h] for h in H))
             )
             for p in P for pp in P for s in S if p != pp
         ),

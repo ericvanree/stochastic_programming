@@ -52,7 +52,7 @@ Evaluated per scenario $s$:
   \item $S_{ps}$ -- start time of patient $p$ under
         scenario $s$
   \item $W_{ps}$ -- waiting time of patient $p$ under scenario $s$
-  \item $I_{hs}$ -- idle time of session $h$ under scenario $s$
+  \item $I_{pp's}$ -- idle time between consecutively scheduled patients $p$ and $p'$ under scenario $s$
   \item $O_{hs}$ -- overtime of session $h$ under scenario $s$
 \end{itemize}
 
@@ -66,7 +66,7 @@ specialty violations:
   \min \quad
     & \sum_{s \in S} \pi_s \Bigl[
         \beta_1 \sum_{p \in P} W_{ps}
-      + \beta_2 \sum_{h \in H} I_{hs}
+      + \beta_2 \sum_{p \in P}\sum_{\substack{p' \in P \\ p' \neq p}} I_{pp's}
       + \beta_3 \sum_{h \in H} O_{hs}
       \Bigr] \nonumber \\
     & + \; \beta_4 \sum_{h \in H} \sum_{q \in Q} D_{hq}
@@ -215,8 +215,8 @@ The idle time is defined as the time between the end time and starting time of t
 %
 \begin{align}
   I_{pp's} \geq\; & S_{p's}-S_{ps}-d_{ps}-
-                  c-M*(1-\sum_{h \in H}X_{pp'h}) \\
-                & \forall p \in P, \forall p'\in P,s \in S
+                  c-M\left(1-\sum_{h \in H}X_{pp'h}\right) \nonumber \\
+                & \forall\, p, p' \in P,\; p \neq p',\; s \in S
   \label{eq:idle}
 \end{align}
 \subsubsection{Sub-Tour Elimination}
@@ -233,12 +233,12 @@ session:
 \subsubsection{Domain}
 
 \begin{align}
-  & X_{h},\; Y_{ph},\; Z_h,\; V_{hq} \in \{0,1\}
+  & X_{ijh},\; Y_{ph},\; Z_h,\; V_{hq} \in \{0,1\}
   \label{eq:dom_bin} \\[2pt]
   & D_{hq},\; U_{ph} \in \mathbb{Z}_{\geq 0}
   \qquad 
   \label{eq:dom_viol} \\[2pt]
-  & A_p,\; S_{ps},\; W_{ps},\; I_{hs},\; O_{hs} \geq 0
+  & A_p,\; S_{ps},\; W_{ps},\; I_{pp's},\; O_{hs} \geq 0
 \end{align}
 
 \section{Step 1: timing only}

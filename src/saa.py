@@ -23,6 +23,7 @@ import csv
 import os
 import re
 import sys
+from concurrent.futures import ProcessPoolExecutor
 
 sys.path.insert(0, os.path.dirname(__file__))
 
@@ -239,7 +240,53 @@ def simulate_schedule(
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# 4. SAA LOOP
+# 4a. PER-REPLICATION WORKER  (module-level so ProcessPoolExecutor can pickle it)
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _rep_worker(job: dict) -> float:
+    """
+    Run one SAA replication in a worker process.  Returns the out-of-sample
+    objective value, or NaN on failure.  Must be at module level so that
+    ProcessPoolExecutor (spawn context on Windows) can pickle it.
+    """
+    d_train, S_train, pi_train = generate_scenarios(
+        job["df"], job["N"], job["method"], job["seed_rep"]
+    )
+    try:
+        m = build_model(
+            f"SAA_{job['method']}_N{job['N']}_r{job['rep']}",
+            job["P"], job["P0"], job["H"],
+            S_train, d_train, pi_train,
+            job["SPECS"], job["q_pq"],
+            _BETA, _T_START, _T_CLOSE, _C, _M_BIG,
+            fixed_X=job["fixed_X"],
+            fixed_Y=job["fixed_Y"],
+        )
+        m.setParam("OutputFlag", 0)
+        m.setParam("TimeLimit", job["time_limit"])
+        m.setParam("Threads", job["gurobi_threads"])
+        if job["step"] == 3:
+            m.setParam("MIPGap", 0.01)
+        m.optimize()
+
+        if m.SolCount > 0:
+            X_vals = {k: m._X[k].X for k in m._X}
+            Y_vals = {k: m._Y[k].X for k in m._Y}
+            A_vals = {p: m._A[p].X for p in job["P"]}
+            D_vals = {k: m._D[k].X for k in m._D}
+            return simulate_schedule(
+                X_vals, Y_vals, A_vals, D_vals,
+                job["d_eval"], job["S_eval"], job["pi_eval"],
+                job["P"], job["H"], job["SPECS"],
+            )
+        return float("nan")
+    except Exception as exc:
+        print(f"\n  [WARN] N={job['N']} rep={job['rep']}: {exc}", flush=True)
+        return float("nan")
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 4b. SAA LOOP
 # ─────────────────────────────────────────────────────────────────────────────
 
 def run_saa(args) -> tuple[list, str]:
@@ -249,7 +296,7 @@ def run_saa(args) -> tuple[list, str]:
     print(f"  Step={args.step}  WL={args.wl}  "
           f"N={args.n_start}..{args.n_max} (Δ={args.n_step})")
     print(f"  M={args.m_reps} reps  N'={args.n_prime}  seed={args.start_seed}")
-    print(f"  Methods: {args.methods}")
+    print(f"  Workers: {args.n_workers}  Methods: {args.methods}")
     print(f"{'=' * 65}\n")
 
     # ── Load patient data ─────────────────────────────────────────────────────
@@ -298,70 +345,101 @@ def run_saa(args) -> tuple[list, str]:
     for method_idx, method in enumerate(args.methods):
         print(f"\n── Method: {_METHOD_LABEL.get(method, method)} ──")
         for N in N_values:
-            n_ok = n_fail = 0
             rep_objs: list[float] = []
 
-            for rep in range(args.m_reps):
-                # Unique, reproducible seed for every (method, N, rep) triple
-                seed_rep = (
-                    args.start_seed
-                    + method_idx * 100_000
-                    + N * args.m_reps
-                    + rep
-                )
-
-                # Generate N training scenarios
-                d_train, S_train, pi_train = generate_scenarios(
-                    df, N, method, seed_rep
-                )
-
-                # Build and solve the MILP
-                try:
-                    m = build_model(
-                        f"SAA_{method}_N{N}_r{rep}",
-                        P, P0, H,
-                        S_train, d_train, pi_train,
-                        SPECS, q_pq,
-                        _BETA, _T_START, _T_CLOSE, _C, _M_BIG,
-                        fixed_X=fixed_X_base,
-                        fixed_Y=fixed_Y_base,
+            if args.n_workers > 1:
+                # ── Parallel: dispatch all reps to worker processes ──────────
+                n_cpu = os.cpu_count() or 1
+                gurobi_threads = max(1, n_cpu // args.n_workers)
+                jobs = [
+                    {
+                        "method": method, "N": N, "rep": rep,
+                        "seed_rep": (
+                            args.start_seed
+                            + method_idx * 100_000
+                            + N * args.m_reps
+                            + rep
+                        ),
+                        "df": df, "P": P, "P0": P0, "H": H,
+                        "SPECS": SPECS, "q_pq": q_pq,
+                        "d_eval": d_eval, "S_eval": S_eval, "pi_eval": pi_eval,
+                        "time_limit": time_limit,
+                        "gurobi_threads": gurobi_threads,
+                        "step": args.step,
+                        "fixed_X": fixed_X_base,
+                        "fixed_Y": fixed_Y_base,
+                    }
+                    for rep in range(args.m_reps)
+                ]
+                with ProcessPoolExecutor(max_workers=args.n_workers) as ex:
+                    rep_objs = list(ex.map(_rep_worker, jobs))
+                # Batch-write results after parallel block
+                for rep, obj_out in enumerate(rep_objs):
+                    row = [method, N, rep, obj_out]
+                    all_rows.append(row)
+                    with open(csv_path, "a", newline="") as fh:
+                        csv.writer(fh).writerow(row)
+            else:
+                # ── Sequential: solve reps one by one, stream to CSV ─────────
+                for rep in range(args.m_reps):
+                    # Unique, reproducible seed for every (method, N, rep) triple
+                    seed_rep = (
+                        args.start_seed
+                        + method_idx * 100_000
+                        + N * args.m_reps
+                        + rep
                     )
-                    m.setParam("OutputFlag", 0)
-                    m.setParam("TimeLimit", time_limit)
-                    if args.step == 3:
-                        m.setParam("MIPGap", 0.01)
-                    m.optimize()
 
-                    if m.SolCount > 0:
-                        X_vals  = {k: m._X[k].X for k in m._X}
-                        Y_vals  = {k: m._Y[k].X for k in m._Y}
-                        A_vals  = {p: m._A[p].X for p in P}
-                        D_vals  = {k: m._D[k].X for k in m._D}
-                        obj_out = simulate_schedule(
-                            X_vals, Y_vals, A_vals, D_vals,
-                            d_eval, S_eval, pi_eval,
-                            P, H, SPECS,
+                    # Generate N training scenarios
+                    d_train, S_train, pi_train = generate_scenarios(
+                        df, N, method, seed_rep
+                    )
+
+                    # Build and solve the MILP
+                    try:
+                        m = build_model(
+                            f"SAA_{method}_N{N}_r{rep}",
+                            P, P0, H,
+                            S_train, d_train, pi_train,
+                            SPECS, q_pq,
+                            _BETA, _T_START, _T_CLOSE, _C, _M_BIG,
+                            fixed_X=fixed_X_base,
+                            fixed_Y=fixed_Y_base,
                         )
-                        n_ok += 1
-                    else:
+                        m.setParam("OutputFlag", 0)
+                        m.setParam("TimeLimit", time_limit)
+                        if args.step == 3:
+                            m.setParam("MIPGap", 0.01)
+                        m.optimize()
+
+                        if m.SolCount > 0:
+                            X_vals  = {k: m._X[k].X for k in m._X}
+                            Y_vals  = {k: m._Y[k].X for k in m._Y}
+                            A_vals  = {p: m._A[p].X for p in P}
+                            D_vals  = {k: m._D[k].X for k in m._D}
+                            obj_out = simulate_schedule(
+                                X_vals, Y_vals, A_vals, D_vals,
+                                d_eval, S_eval, pi_eval,
+                                P, H, SPECS,
+                            )
+                        else:
+                            obj_out = float("nan")
+
+                    except Exception as exc:
                         obj_out = float("nan")
-                        n_fail += 1
+                        print(f"\n  [WARN] N={N} rep={rep}: {exc}")
 
-                except Exception as exc:
-                    obj_out = float("nan")
-                    n_fail += 1
-                    print(f"\n  [WARN] N={N} rep={rep}: {exc}")
-
-                row = [method, N, rep, obj_out]
-                all_rows.append(row)
-                rep_objs.append(obj_out)
-
-                # Write immediately so partial results survive interruptions
-                with open(csv_path, "a", newline="") as fh:
-                    csv.writer(fh).writerow(row)
+                    rep_objs.append(obj_out)
+                    row = [method, N, rep, obj_out]
+                    all_rows.append(row)
+                    # Write immediately so partial results survive interruptions
+                    with open(csv_path, "a", newline="") as fh:
+                        csv.writer(fh).writerow(row)
 
             # Summary for this N
-            valid = [v for v in rep_objs if not np.isnan(v)]
+            n_ok   = sum(1 for v in rep_objs if not np.isnan(v))
+            n_fail = args.m_reps - n_ok
+            valid  = [v for v in rep_objs if not np.isnan(v)]
             if valid:
                 mean_v = np.mean(valid)
                 std_v  = np.std(valid, ddof=1) if len(valid) > 1 else 0.0
@@ -534,6 +612,14 @@ def _parse_args() -> argparse.Namespace:
         help=(
             "Gurobi time limit per solve (seconds). "
             "0 = auto: 120 s for steps 1-2, 300 s for step 3."
+        ),
+    )
+    p.add_argument(
+        "--n-workers", type=int, default=1,
+        help=(
+            "Number of parallel worker processes for SAA replications. "
+            "1 = sequential (default). When >1, Gurobi threads per solve "
+            "are set to max(1, cpu_count // n_workers) to avoid oversubscription."
         ),
     )
     p.add_argument(
