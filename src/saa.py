@@ -8,8 +8,7 @@ row-by-row to a CSV file; a convergence plot is produced at the end.
 
 Usage
 -----
-python src/saa.py --step 3 --wl 4 --n-start 10 --n-step 5 --n-max 30 \\
-    --n-prime 1000 --m-reps 10 --start-seed 10
+python src/saa.py --step 2 --wl 4 --n-start 10 --n-step 5 --n-max 30 --n-prime 1000 --m-reps 10 --start-seed 10
 
 Outputs (in --output-dir, default "output/")
 --------------------------------------------
