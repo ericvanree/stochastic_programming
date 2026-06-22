@@ -43,6 +43,15 @@ _BETA    = {"W": 0.6, "I": 0.2, "O": 0.2, "D": 100.0}
 
 _ALL_METHODS = ["random", "lhs", "is"]
 
+
+def _flush_results_csv(results: dict, path: str) -> None:
+    """Write the full merged results dict to CSV, sorted by (method, N, rep)."""
+    with open(path, "w", newline="") as fh:
+        w = csv.writer(fh)
+        w.writerow(["method", "N", "replication", "obj_out_of_sample"])
+        for (meth, n, rep), obj in sorted(results.items()):
+            w.writerow([meth, n, rep, obj])
+
 # ── Method display names ──────────────────────────────────────────────────────
 _METHOD_LABEL = {
     "random": "Random Sampling (RS)",
@@ -335,8 +344,21 @@ def run_saa(args) -> tuple[list, str]:
     csv_path = os.path.join(
         args.output_dir, f"saa_wl{args.wl}_step{args.step}.csv"
     )
-    with open(csv_path, "w", newline="") as fh:
-        csv.writer(fh).writerow(["method", "N", "replication", "obj_out_of_sample"])
+
+    # Load existing results; keyed by (method, N, replication) for upsert
+    existing_results: dict[tuple, float] = {}
+    if os.path.exists(csv_path):
+        try:
+            df_existing = pd.read_csv(csv_path)
+            for _, row in df_existing.iterrows():
+                key = (row["method"], int(row["N"]), int(row["replication"]))
+                existing_results[key] = float(row["obj_out_of_sample"])
+            print(f"Loaded {len(existing_results)} existing results from: {csv_path}\n")
+        except Exception as e:
+            print(f"Could not read existing CSV ({e}); starting fresh.\n")
+    else:
+        _flush_results_csv(existing_results, csv_path)
+
     print(f"Streaming results to: {csv_path}\n")
 
     all_rows: list[list] = []
@@ -374,12 +396,12 @@ def run_saa(args) -> tuple[list, str]:
                 ]
                 with ProcessPoolExecutor(max_workers=args.n_workers) as ex:
                     rep_objs = list(ex.map(_rep_worker, jobs))
-                # Batch-write results after parallel block
+                # Batch-write results after parallel block (upsert into existing)
                 for rep, obj_out in enumerate(rep_objs):
                     row = [method, N, rep, obj_out]
                     all_rows.append(row)
-                    with open(csv_path, "a", newline="") as fh:
-                        csv.writer(fh).writerow(row)
+                    existing_results[(method, N, rep)] = obj_out
+                _flush_results_csv(existing_results, csv_path)
             else:
                 # ── Sequential: solve reps one by one, stream to CSV ─────────
                 for rep in range(args.m_reps):
@@ -433,9 +455,9 @@ def run_saa(args) -> tuple[list, str]:
                     rep_objs.append(obj_out)
                     row = [method, N, rep, obj_out]
                     all_rows.append(row)
-                    # Write immediately so partial results survive interruptions
-                    with open(csv_path, "a", newline="") as fh:
-                        csv.writer(fh).writerow(row)
+                    # Upsert and rewrite immediately so partial results survive interruptions
+                    existing_results[(method, N, rep)] = obj_out
+                    _flush_results_csv(existing_results, csv_path)
 
             # Summary for this N
             n_ok   = sum(1 for v in rep_objs if not np.isnan(v))
