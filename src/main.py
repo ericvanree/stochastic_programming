@@ -49,6 +49,7 @@ if __name__ == "__main__":
     # ══ Scenario parameters ════════════════════════════════════════════════════
     N_SCENARIOS     = 11           # 0 = deterministic expected duration
     SAMPLING_METHOD = "is"    # 'expected' | 'random' | 'lhs' | 'is'
+    IS_K            = 1.0     # shift magnitude for IS (delta ∈ {-k, 0, k}); ignored for other methods
     RANDOM_SEED     = 42
 
     # ══ Load CSV ═══════════════════════════════════════════════════════════════
@@ -67,7 +68,7 @@ if __name__ == "__main__":
     SPECS       = sorted(df["Specialty"].unique().tolist())
 
     # ══ Scenario generation ════════════════════════════════════════════════════
-    d, S, pi = generate_scenarios(df, N_SCENARIOS, SAMPLING_METHOD, RANDOM_SEED)
+    d, S, pi = generate_scenarios(df, N_SCENARIOS, SAMPLING_METHOD, RANDOM_SEED, IS_K)
     print(f"Scenarios   : {len(S)}  (method='{SAMPLING_METHOD}')")
     if len(S) <= 5:
         dur_rows = pd.DataFrame(
@@ -85,6 +86,11 @@ if __name__ == "__main__":
 
     # Objective weights β₁ (wait) β₂ (idle) β₃ (overtime) β₄ (specialty mismatch)
     beta = {"W": 0.6, "I": 0.2, "O": 0.2, "D": 100.0}
+
+    # ══ Gurobi time limits (seconds) per solve step ════════════════════════════
+    TIME_LIMIT_STEP1 = 3600   # Step 1 — Timing only
+    TIME_LIMIT_STEP2 = 3600  # Step 2 — Sequencing + timing
+    TIME_LIMIT_STEP3 = 3600  # Step 3 — Full MILP
 
     # ══ Specialty membership ═══════════════════════════════════════════════════
     specialty_of = {row["Patient ID"]: row["Specialty"] for _, row in df.iterrows()}
@@ -702,7 +708,7 @@ if __name__ == "__main__":
         beta, t_start, t_close, c, M_BIG,
         fixed_X=fixed_X_s1,
     )
-    m1.setParam("TimeLimit", 120)
+    m1.setParam("TimeLimit", TIME_LIMIT_STEP1)
     m1.optimize()
     print_solution(m1, "Step 1 — Timing only (session + sequence fixed from CSV)")
     sol1 = extract_solution(m1)
@@ -726,7 +732,7 @@ if __name__ == "__main__":
         beta, t_start, t_close, c, M_BIG,
         fixed_Y=fixed_Y_s2,
     )
-    m2.setParam("TimeLimit", 120)
+    m2.setParam("TimeLimit", TIME_LIMIT_STEP2)
     m2.optimize()
     print_solution(m2, "Step 2 — Sequencing + timing (session fixed from CSV, sequence free)")
     sol2 = extract_solution(m2)
@@ -744,7 +750,7 @@ if __name__ == "__main__":
         SPECS, q_pq,
         beta, t_start, t_close, c, M_BIG,
     )
-    m3.setParam("TimeLimit", 300)
+    m3.setParam("TimeLimit", TIME_LIMIT_STEP3)
     m3.setParam("MIPGap", 0.01)
     m3.optimize()
     print_solution(m3, "Step 3 — Full MILP (all decisions free)")

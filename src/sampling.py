@@ -150,48 +150,61 @@ def generate_lhs(df, n_scenarios: int, rng: np.random.Generator) -> dict:
 
 
 # ── Mixture Importance Sampling ───────────────────────────────────────────────
-def generate_is(df, n_scenarios: int, rng: np.random.Generator) -> tuple[dict, dict]:
+def generate_is(
+    df,
+    n_scenarios: int,
+    rng: np.random.Generator,
+    k: float = 1.0,
+) -> tuple[dict, dict]:
     """
-    Mixture Importance Sampling (MIS).
+    Mixture Importance Sampling (MIS) — three-group strategy.
 
-    Each of the |S| scenarios s uses its own proposal distribution g_s whose
-    mean for every patient p is shifted to boundary point s of the interval
-    [mu_p - sigma_p, mu_p + sigma_p]:
+    The scenario set S is partitioned into three equally-sized subsets
+    (sizes differ by at most one when n_scenarios is not divisible by 3).
+    Each subset is drawn from a proposal whose real-space mean for every
+    patient p is shifted by delta * sigma_p, where delta ∈ {-k, 0, +k}:
 
-        k_s      = -1 + 2*s / (|S| - 1)          (linearly from -1 to +1)
-        mu_{p,s} = mu_p + k_s * sigma_p
+        Subset 0 (neg. shift):  mu_{p,s} = mu_p - k * sigma_p
+        Subset 1 (no shift):    mu_{p,s} = mu_p
+        Subset 2 (pos. shift):  mu_{p,s} = mu_p + k * sigma_p
 
-    The shift fraction k_s is the SAME for all patients in scenario s, so
-    all patients' distributions move together across scenarios.
+    All proposals use the same truncation bounds as the nominal distribution:
+    [mu_p - 2*sigma_p, mu_p + 2*sigma_p], ensuring f(x_{p,s}) > 0.
 
-    One sample x_{p,s} is drawn per patient per scenario from g_{s,p}.
-    All proposals are truncated to f's bounds [mu_p - 2*sigma_p, mu_p + 2*sigma_p]
-    so that f(x_{p,s}) > 0 is guaranteed and no NaN weights arise.
+    IS Weights
+    ----------
+    The likelihood ratio for scenario s drawn from the delta_s-shifted proposal:
 
-    Weights
-    -------
-        log w_s = sum_p [ log f_p(x_{p,s}) - log g_{s,p}(x_{p,s}) ]
+        log w_s = sum_p [ log f_p(x_{p,s} | mu_p) - log g_p(x_{p,s} | mu_p + delta_s*sigma_p) ]
 
     Accumulated in log-space per patient, then normalised with log-sum-exp.
 
-    Edge case: |S| = 1  =>  k_0 = 0 (original mean, no shift).
+    Edge case: n_scenarios == 1  =>  drawn from the unshifted proposal (delta=0).
     """
     n = n_scenarios
 
-    # Shift fractions: n equally-spaced values from -1 to +1
-    if n == 1:
-        shift_factors = np.array([0.0])
-    else:
-        shift_factors = np.linspace(-1.0, 1.0, n)   # shape (n,)
+    shifts = np.array([-k, 0.0, k])
 
-    # Precompute per-patient parameters for f (target) and g_s (proposals)
+    # Distribute n scenarios across 3 groups as evenly as possible
+    base  = n // 3
+    rem   = n % 3
+    sizes = [base + (1 if i < rem else 0) for i in range(3)]
+
+    # Per-scenario shift (delta_s) array
+    delta_s_arr = np.empty(n)
+    idx = 0
+    for g, (sz, delta) in enumerate(zip(sizes, shifts)):
+        delta_s_arr[idx:idx + sz] = delta
+        idx += sz
+
+    # Precompute per-patient parameters for f (nominal) and each group proposal
     patient_params = []
     for _, row in df.iterrows():
         p     = row["Patient ID"]
         mu_d  = float(row["expected_duration"])
         sig_d = float(row["sigma_error"])
 
-        # Target f: truncated log-normal with real-space mean = mu_d
+        # Nominal distribution f (truncated log-normal with real-space mean mu_d)
         mu_ln_f, sigma_ln_f = _lognorm_params(mu_d, sig_d)
         lo_f = max(mu_d - 2.0 * sig_d, 1e-3)
         hi_f = mu_d + 2.0 * sig_d
@@ -199,14 +212,14 @@ def generate_is(df, n_scenarios: int, rng: np.random.Generator) -> tuple[dict, d
         b_f  = (np.log(hi_f) - mu_ln_f) / sigma_ln_f
         dist_f = truncnorm(a_f, b_f)
 
-        # Proposals g_s: one per scenario, shifted mean, same truncation bounds as f
+        # One proposal per group (delta ∈ {-k, 0, +k}), same truncation bounds as f
         proposals = []
-        for k in shift_factors:
-            mu_d_s = np.clip(mu_d + k * sig_d, lo_f + 1e-6, hi_f - 1e-6)
-            mu_ln_s, sigma_ln_s = _lognorm_params(mu_d_s, sig_d)
-            a_s = (np.log(lo_f) - mu_ln_s) / sigma_ln_s
-            b_s = (np.log(hi_f) - mu_ln_s) / sigma_ln_s
-            proposals.append((mu_ln_s, sigma_ln_s, truncnorm(a_s, b_s)))
+        for delta in shifts:
+            mu_d_g = np.clip(mu_d + delta * sig_d, lo_f + 1e-6, hi_f - 1e-6)
+            mu_ln_g, sigma_ln_g = _lognorm_params(mu_d_g, sig_d)
+            a_g = (np.log(lo_f) - mu_ln_g) / sigma_ln_g
+            b_g = (np.log(hi_f) - mu_ln_g) / sigma_ln_g
+            proposals.append((mu_ln_g, sigma_ln_g, truncnorm(a_g, b_g)))
 
         patient_params.append(dict(
             p=p,
@@ -224,19 +237,22 @@ def generate_is(df, n_scenarios: int, rng: np.random.Generator) -> tuple[dict, d
         dist_f     = pat["dist_f"]
         proposals  = pat["proposals"]
 
-        for s in range(n):
-            mu_ln_s, sigma_ln_s, dist_s = proposals[s]
+        # Draw scenarios group by group
+        s = 0
+        for g, sz in enumerate(sizes):
+            mu_ln_g, sigma_ln_g, dist_g = proposals[g]
+            for _ in range(sz):
+                # Draw one sample from proposal g for this group
+                z_g = dist_g.rvs(random_state=rng)           # scalar
+                x   = float(np.exp(mu_ln_g + sigma_ln_g * z_g))
+                d[p, s] = x
 
-            # Draw one sample from proposal g_s
-            z_s = dist_s.rvs(random_state=rng)          # scalar
-            x   = float(np.exp(mu_ln_s + sigma_ln_s * z_s))
-            d[p, s] = x
-
-            # log f_p(x) - log g_{s,p}(x)  (Jacobian -ln x cancels in ratio)
-            z_f      = (np.log(x) - mu_ln_f) / sigma_ln_f
-            logpdf_f = float(dist_f.logpdf(z_f)) - np.log(sigma_ln_f)
-            logpdf_s = float(dist_s.logpdf(z_s)) - np.log(sigma_ln_s)
-            log_w[s] += logpdf_f - logpdf_s
+                # log f_p(x) - log g_p(x)  (Jacobian -ln x cancels in ratio)
+                z_f      = (np.log(x) - mu_ln_f) / sigma_ln_f
+                logpdf_f = float(dist_f.logpdf(z_f)) - np.log(sigma_ln_f)
+                logpdf_g = float(dist_g.logpdf(z_g)) - np.log(sigma_ln_g)
+                log_w[s] += logpdf_f - logpdf_g
+                s += 1
 
     # Normalise via log-sum-exp
     log_w -= np.max(log_w)
@@ -245,8 +261,8 @@ def generate_is(df, n_scenarios: int, rng: np.random.Generator) -> tuple[dict, d
 
     pi    = {s: float(w_norm[s]) for s in range(n)}
     eff_n = 1.0 / float(np.sum(w_norm ** 2))
-    print(f"  MIS shift factors: {np.round(shift_factors, 3).tolist()}")
-    print(f"  MIS weight stats : min={w_norm.min():.4f}  max={w_norm.max():.4f}"
+    print(f"  IS k={k}  shifts: {shifts.tolist()}  group sizes: {sizes}")
+    print(f"  IS weight stats : min={w_norm.min():.4f}  max={w_norm.max():.4f}"
           f"  effective n = {eff_n:.1f} / {n}")
     return d, pi
 
@@ -267,6 +283,7 @@ def generate_scenarios(
     n_scenarios: int,
     method: str = "expected",
     seed: int = 42,
+    is_k: float = 1.0,
 ) -> tuple[dict, list, dict]:
     """
     Top-level entry point.
@@ -277,6 +294,7 @@ def generate_scenarios(
     n_scenarios : number of scenarios (0 → deterministic expected duration)
     method      : one of 'expected', 'random', 'lhs', 'is'
     seed        : random seed for reproducibility
+    is_k        : shift magnitude for IS (k > 0); only used when method='is'
 
     Returns
     -------
@@ -295,7 +313,7 @@ def generate_scenarios(
                          f"Choose from: {list(METHODS)}")
 
     if method in _CUSTOM_WEIGHT_METHODS:
-        d, pi = METHODS[method](df, n_scenarios, rng)
+        d, pi = METHODS[method](df, n_scenarios, rng, is_k)
     else:
         d  = METHODS[method](df, n_scenarios, rng)
         pi = {s: 1.0 / n_scenarios for s in range(n_scenarios)}

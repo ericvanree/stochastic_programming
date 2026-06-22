@@ -250,7 +250,7 @@ def _rep_worker(job: dict) -> float:
     ProcessPoolExecutor (spawn context on Windows) can pickle it.
     """
     d_train, S_train, pi_train = generate_scenarios(
-        job["df"], job["N"], job["method"], job["seed_rep"]
+        job["df"], job["N"], job["method"], job["seed_rep"], job["is_k"]
     )
     try:
         m = build_model(
@@ -368,6 +368,7 @@ def run_saa(args) -> tuple[list, str]:
                         "step": args.step,
                         "fixed_X": fixed_X_base,
                         "fixed_Y": fixed_Y_base,
+                        "is_k": args.is_k,
                     }
                     for rep in range(args.m_reps)
                 ]
@@ -392,7 +393,7 @@ def run_saa(args) -> tuple[list, str]:
 
                     # Generate N training scenarios
                     d_train, S_train, pi_train = generate_scenarios(
-                        df, N, method, seed_rep
+                        df, N, method, seed_rep, args.is_k
                     )
 
                     # Build and solve the MILP
@@ -625,6 +626,10 @@ def _parse_args() -> argparse.Namespace:
     p.add_argument(
         "--output-dir", type=str, default="output",
         help="Directory for CSV results and convergence plot",
+    )
+    p.add_argument(
+        "--is-k", type=float, default=1.0,
+        help="Shift magnitude k for IS (delta ∈ {-k, 0, k}); ignored for other methods",
     )
     return p.parse_args()
 

@@ -49,16 +49,95 @@ The script is structured as a Jupyter-style percent-cell file (`# %%`) and can a
 
 ## Scenario Sampling (`src/sampling.py`)
 
-All methods return `(d, S, pi)`: duration dict `{(patient_id, scenario_idx): float}`, scenario index list, probability vector.
+Entry point: `generate_scenarios(df, n_scenarios, method, seed, is_k)` returns `(d, S, pi)`:
+- `d` — duration dict `{(patient_id, scenario_idx): float}`
+- `S` — list of scenario indices
+- `pi` — probability dict `{scenario_idx: float}` (uniform for SAA/LHS; IS weights for `"is"`)
+
+Durations are **truncated log-normal** with real-space mean = `expected_duration`, std = `sigma_error`, truncated to `[mu − 2σ, mu + 2σ]`.
 
 | Method | Description |
 |--------|-------------|
 | `"expected"` | Single deterministic scenario at `expected_duration` |
 | `"random"` | SAA — independent truncated log-normal draws |
-| `"lhs"` | Latin Hypercube Sampling — stratified coverage of the CDF |
-| `"is"` | Mixture Importance Sampling — boundary-shifted proposals with IS weights |
+| `"lhs"` | Latin Hypercube Sampling — CDF-stratified, one draw per equiprobable interval; independently permuted across patients |
+| `"is"` | Mixture Importance Sampling — three-group boundary-shifted proposals with IS weights |
 
-Durations are modelled as **truncated log-normal** with real-space mean = `expected_duration` and std = `sigma_error`, truncated to `[mu ± 2σ]`.
+### Importance Sampling (`"is"`) and `is_k`
+
+`generate_is(df, n_scenarios, rng, k=1.0)` partitions the `n_scenarios` into **three equal-sized groups** (sizes differ by at most 1 when `n % 3 ≠ 0`). Each group draws from a proposal whose real-space mean is shifted by `delta * sigma_p`, where `delta ∈ {-k, 0, +k}`:
+
+| Group | Shift | Purpose |
+|-------|-------|---------|
+| 0 | `−k · σ_p` | Under-run tail (short surgery scenarios) |
+| 1 | `0` | Nominal distribution |
+| 2 | `+k · σ_p` | Over-run tail (long surgery scenarios) |
+
+All three proposals share the **same truncation bounds** as the nominal distribution (`[mu_p − 2σ_p, mu_p + 2σ_p]`), ensuring `f(x) > 0` everywhere a sample can fall.
+
+**IS weights** are computed as likelihood ratios in log-space per patient, summed across patients, then normalised with log-sum-exp:
+
+```
+log w_s = Σ_p [ log f_p(x_{p,s} | mu_p) − log g_p(x_{p,s} | mu_p + delta_s·sigma_p) ]
+```
+
+After normalisation the effective sample size `1 / Σ w²` is printed — use it to judge whether `is_k` is well-tuned.
+
+**Tuning `is_k`:**
+- `k = 1.0` (default) — shifts proposals by ±1 standard deviation; reasonable starting point.
+- Larger `k` (e.g. 1.5–2.0) — places more weight on the tails; effective only if over/under-runs beyond ±σ are consequential.
+- Too large `k` — weight degeneracy (one scenario dominates); watch effective n printed at runtime.
+- `k = 0` — all three groups collapse to the nominal; equivalent to `"random"` but slower.
+
+**`is_k` in the SAA CLI** — passed via `--is-k` (default `1.0`); stored in `args.is_k` and forwarded to every call of `generate_scenarios(..., is_k=args.is_k)`.
+
+## SAA Convergence Analysis (`src/saa.py`)
+
+Runs the full SAA study: varies `N` (training scenarios), repeats `M` replications per `N`, evaluates each solution out-of-sample with `N'` scenarios, streams results to CSV, and plots convergence.
+
+```powershell
+python src/saa.py --step 2 --wl 4 --n-start 10 --n-step 5 --n-max 30 \
+                  --n-prime 1000 --m-reps 10 --start-seed 42 \
+                  --methods random lhs is --is-k 1.0
+```
+
+### Key CLI arguments
+
+| Argument | Default | Effect |
+|----------|---------|--------|
+| `--step` | required | `1` = timing only, `2` = seq+timing, `3` = full MILP |
+| `--wl` | required | Waiting-list size: `4` \| `7` \| `10` \| `13` |
+| `--n-start` | `10` | First training-scenario count |
+| `--n-step` | `5` | Increment between N values |
+| `--n-max` | required | Last training-scenario count (inclusive) |
+| `--n-prime` | `1000` | Out-of-sample evaluation size N′ |
+| `--m-reps` | `10` | SAA replications per N value |
+| `--start-seed` | `42` | Master seed (controls eval sample + training draws) |
+| `--methods` | all three | Space-separated subset of `random lhs is` |
+| `--is-k` | `1.0` | IS shift magnitude k (ignored for `random`/`lhs`) |
+| `--n-workers` | `1` | Parallel worker processes; Gurobi threads auto-scaled |
+| `--time-limit` | `0` | Gurobi seconds per solve (0 = 120 s steps 1–2, 300 s step 3) |
+| `--output-dir` | `output` | Directory for CSV + HTML plot |
+
+### SAA outputs
+
+- `output/saa_wl{wl}_step{step}.csv` — columns: `method, N, replication, obj_out_of_sample`
+- `output/saa_convergence_wl{wl}_step{step}.html` — Plotly convergence chart (mean ± 95 % CI)
+
+### SAA seed scheme
+
+Each `(method, N, rep)` triple gets a deterministic unique seed:
+```python
+seed_rep = start_seed + method_idx * 100_000 + N * m_reps + rep
+```
+The evaluation sample always uses `start_seed` with `method="random"` — it is **fixed across all training methods**.
+
+### Out-of-sample evaluation (`simulate_schedule`)
+
+`simulate_schedule()` in `saa.py` analytically propagates start times for a fixed first-stage solution without re-solving the MILP:
+- Reconstructs patient sequences from `X` arcs (depot → p1 → … → pk).
+- Computes `S[p,s] = max(A[p], prev_finish)` per scenario.
+- Returns the weighted objective under `pi_eval`.
 
 ## Model Builder
 
