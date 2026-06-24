@@ -1,19 +1,21 @@
 """
 saa.py — SAA convergence analysis CLI for stochastic OR scheduling.
 
-Runs the SAA procedure for a given model step, waiting-list, and scenario
-range.  Each replication is evaluated analytically (forward simulation of the
-fixed schedule) on a fixed out-of-sample evaluation set.  Results are written
-row-by-row to a CSV file; a convergence plot is produced at the end.
+Runs the SAA procedure for all three model steps (timing-only, sequencing+timing,
+full MILP), warm-starting each step from the previous.  Each replication is
+evaluated analytically on a fixed out-of-sample evaluation set.  Results are
+written row-by-row to per-step CSV files; convergence plots are produced at the
+end.
 
 Usage
 -----
-python src/saa.py --step 2 --wl 4 --n-start 10 --n-step 5 --n-max 30 --n-prime 1000 --m-reps 10 --start-seed 10
+python src/saa.py --wl 4 --n-start 1 --n-step 3 --n-max 16 --n-prime 10000 \\
+                  --m-reps 10 --time-limit 600 --is-k 0.5
 
 Outputs (in --output-dir, default "output/")
 --------------------------------------------
-  saa_wl{wl}_step{step}.csv                -- per-replication results
-  saa_convergence_wl{wl}_step{step}.html   -- interactive convergence plot
+  saa_wl{wl}_step{1,2,3}.csv                -- per-replication results
+  saa_convergence_wl{wl}_step{1,2,3}.html   -- interactive convergence plots
 """
 
 from __future__ import annotations
@@ -38,7 +40,6 @@ from main import build_model
 _T_START = 480      # 08:00 in minutes from midnight
 _T_CLOSE = 960      # 16:00 in minutes from midnight
 _C       = 10       # changeover / cleaning time (minutes)
-_M_BIG   = 5_000    # big-M constant
 _BETA    = {"W": 0.6, "I": 0.2, "O": 0.2, "D": 100.0}
 
 _ALL_METHODS = ["random", "lhs", "is"]
@@ -82,7 +83,6 @@ def load_data(wl: int):
     -------
     df, P, H, P0, SPECS, q_pq, session_ids, session_sequences, patient_to_h
     """
-    # Resolve path relative to this script so it works regardless of cwd
     root = os.path.join(os.path.dirname(__file__), "..")
     data_file = os.path.join(root, "input", f"sample_wl{wl}.csv")
     df = pd.read_csv(data_file)
@@ -162,34 +162,7 @@ def simulate_schedule(
     t_close: int = _T_CLOSE,
     c: int = _C,
 ) -> float:
-    """
-    Analytically evaluate a fixed first-stage solution on out-of-sample scenarios.
-
-    For each session the patient sequence is reconstructed by following the X
-    arcs from the depot node (0).  Start times are propagated as:
-
-        S[p, s] = max(A[p],  prev_finish)
-
-    where prev_finish = S[prev, s] + d[prev, s] + c.  Waiting time, idle time,
-    and overtime follow directly.  The specialty-mismatch penalty (D) is
-    scenario-independent and added once.
-
-    Parameters
-    ----------
-    X_vals  : {(i, j, h): float}  — sequencing arcs (0/1 values)
-    Y_vals  : {(p, h): float}     — assignment (0/1 values)
-    A_vals  : {p: float}          — appointment times (minutes)
-    D_vals  : {(h, q): float}     — specialty violation counts
-    d_eval  : {(p, s): float}     — eval scenario durations
-    S_eval  : list                — eval scenario indices
-    pi_eval : {s: float}          — eval scenario probabilities
-    P, H, SPECS                   — patient/session/specialty sets
-
-    Returns
-    -------
-    float — weighted out-of-sample objective value
-    """
-    # Reconstruct per-session sequence from X arcs (follow depot → p1 → … → pk)
+    """Analytically evaluate a fixed first-stage solution on out-of-sample scenarios."""
     sequences: dict[int, list] = {}
     for h in H:
         seq: list = []
@@ -205,7 +178,6 @@ def simulate_schedule(
             cur = nxt
         sequences[h] = seq
 
-    # Weighted sum over eval scenarios
     total_scenario_cost = 0.0
     for s in S_eval:
         w_s = i_s = o_s = 0.0
@@ -213,27 +185,19 @@ def simulate_schedule(
             seq = sequences[h]
             if not seq:
                 continue
-
-            # Forward-propagate start times
             starts: dict = {}
-            prev_finish = float(t_start)   # session opens at t_start
+            prev_finish = float(t_start)
             for p in seq:
                 dur = d_eval[p, s]
                 s_p = max(A_vals[p], prev_finish)
                 starts[p] = s_p
                 prev_finish = s_p + dur + c
-
-            # Waiting time (per patient)
             for p in seq:
                 w_s += max(0.0, starts[p] - A_vals[p])
-
-            # Idle time (between consecutive patients)
             for k in range(len(seq) - 1):
                 p_cur, p_nxt = seq[k], seq[k + 1]
                 gap = starts[p_nxt] - (starts[p_cur] + d_eval[p_cur, s] + c)
                 i_s += max(0.0, gap)
-
-            # Overtime (last patient's finish vs session close)
             last_p = seq[-1]
             finish_last = starts[last_p] + d_eval[last_p, s]
             o_s += max(0.0, finish_last - t_close)
@@ -242,83 +206,187 @@ def simulate_schedule(
             beta["W"] * w_s + beta["I"] * i_s + beta["O"] * o_s
         )
 
-    # Specialty-mismatch penalty (scenario-independent)
     d_penalty = beta["D"] * sum(D_vals.get((h, q), 0.0) for h in H for q in SPECS)
-
     return total_scenario_cost + d_penalty
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# 4a. PER-REPLICATION WORKER  (module-level so ProcessPoolExecutor can pickle it)
+# 4a. WARM-START HELPER (step 2 → step 3)
 # ─────────────────────────────────────────────────────────────────────────────
 
-def _rep_worker(job: dict) -> float:
+def _warm_start_s2_to_s3(m2, m3, P, P0, H, S_train, SPECS) -> None:
     """
-    Run one SAA replication in a worker process.  Returns the out-of-sample
-    objective value, or NaN on failure.  Must be at module level so that
-    ProcessPoolExecutor (spawn context on Windows) can pickle it.
+    Inject m2's solution into m3 as a MIP start, applying the within-specialty
+    session permutation required to satisfy m3's symmetry-breaking constraints
+    (same logic as main.py Step 3 warm start).
+    """
+    p_rank = {p: k for k, p in enumerate(sorted(P))}
+    first_rank: dict[int, float] = {}
+    spec_of_h: dict[int, object] = {}
+    for h in H:
+        if m2._Z[h].X < 0.5:
+            first_rank[h] = float("inf")
+            spec_of_h[h] = None
+            continue
+        p_first = next((p for p in P if m2._X[0, p, h].X > 0.5), None)
+        first_rank[h] = p_rank[p_first] if p_first is not None else float("inf")
+        spec_of_h[h] = next((q for q in SPECS if m2._V[h, q].X > 0.5), None)
+
+    sorted_src: list[int] = []
+    for q in SPECS:
+        sessions_of_q = [h for h in H if spec_of_h.get(h) == q]
+        sorted_src.extend(sorted(sessions_of_q, key=lambda h: first_rank[h]))
+    for h in H:
+        if h not in sorted_src:
+            sorted_src.append(h)
+    perm = {h_src: h_dst for h_src, h_dst in zip(sorted_src, sorted(H))}
+
+    for p in P:
+        m3._A[p].Start = m2._A[p].X
+        for h in H:
+            m3._Y[p, perm[h]].Start = m2._Y[p, h].X
+    for i in P0:
+        for j in P0:
+            if i == j:
+                continue
+            for h in H:
+                if (i, j, h) in m2._X and (i, j, perm[h]) in m3._X:
+                    m3._X[i, j, perm[h]].Start = m2._X[i, j, h].X
+    for h in H:
+        m3._Z[perm[h]].Start = m2._Z[h].X
+        for q in SPECS:
+            m3._V[perm[h], q].Start = m2._V[h, q].X
+            m3._D[perm[h], q].Start = m2._D[h, q].X
+    for p in P:
+        for s in S_train:
+            m3._S[p, s].Start = m2._S[p, s].X
+            m3._W[p, s].Start = m2._W[p, s].X
+    for p in P:
+        for pp in P:
+            if p == pp:
+                continue
+            for s in S_train:
+                m3._I[p, pp, s].Start = m2._I[p, pp, s].X
+    for h in H:
+        for s in S_train:
+            m3._O[perm[h], s].Start = m2._O[h, s].X
+    m3.update()
+    m3.setParam("MIPFocus", 1)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 4b. PER-REPLICATION WORKER  (module-level so ProcessPoolExecutor can pickle it)
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _rep_worker(job: dict) -> tuple[float, float, float]:
+    """
+    Run one SAA replication across all 3 steps, warm-starting each from the
+    previous.  Returns (obj_step1, obj_step2, obj_step3).  Must be at module
+    level so that ProcessPoolExecutor (spawn context on Windows) can pickle it.
     """
     d_train, S_train, pi_train = generate_scenarios(
         job["df"], job["N"], job["method"], job["seed_rep"], job["is_k"]
     )
-    try:
-        m = build_model(
-            f"SAA_{job['method']}_N{job['N']}_r{job['rep']}",
-            job["P"], job["P0"], job["H"],
-            S_train, d_train, pi_train,
-            job["SPECS"], job["q_pq"],
-            _BETA, _T_START, _T_CLOSE, _C,
-            fixed_X=job["fixed_X"],
-            fixed_Y=job["fixed_Y"],
-        )
+    P, P0, H, SPECS = job["P"], job["P0"], job["H"], job["SPECS"]
+    q_pq = job["q_pq"]
+    d_eval, S_eval, pi_eval = job["d_eval"], job["S_eval"], job["pi_eval"]
+    time_limit   = job["time_limit"]
+    gurobi_threads = job.get("gurobi_threads")
+    rid = f"{job['method']}_N{job['N']}_r{job['rep']}"
+
+    def _configure(m, step, with_mip_focus=False):
         m.setParam("OutputFlag", 0)
-        m.setParam("TimeLimit", job["time_limit"])
-        m.setParam("Threads", job["gurobi_threads"])
-        if job["step"] == 3:
+        m.setParam("TimeLimit", time_limit)
+        if gurobi_threads is not None:
+            m.setParam("Threads", gurobi_threads)
+        if with_mip_focus:
+            m.setParam("MIPFocus", 1)
+        if step == 3:
             m.setParam("MIPGap", 0.01)
             m.setParam("Presolve", 2)
             m.setParam("Cuts", 2)
             m.setParam("Heuristics", 0.3)
-        m.optimize()
 
-        if m.SolCount > 0:
-            X_vals = {k: m._X[k].X for k in m._X}
-            Y_vals = {k: m._Y[k].X for k in m._Y}
-            A_vals = {p: m._A[p].X for p in job["P"]}
-            D_vals = {k: m._D[k].X for k in m._D}
-            return simulate_schedule(
-                X_vals, Y_vals, A_vals, D_vals,
-                job["d_eval"], job["S_eval"], job["pi_eval"],
-                job["P"], job["H"], job["SPECS"],
-            )
-        return float("nan")
+    def _eval(m):
+        if m.SolCount == 0:
+            return float("nan")
+        return simulate_schedule(
+            {k: m._X[k].X for k in m._X},
+            {k: m._Y[k].X for k in m._Y},
+            {p: m._A[p].X for p in P},
+            {k: m._D[k].X for k in m._D},
+            d_eval, S_eval, pi_eval, P, H, SPECS,
+        )
+
+    try:
+        # ── Step 1: X and Y fixed from CSV ───────────────────────────────────
+        m1 = build_model(
+            f"SAA_s1_{rid}", P, P0, H, S_train, d_train, pi_train,
+            SPECS, q_pq, _BETA, _T_START, _T_CLOSE, _C,
+            fixed_X=job["fixed_X_s1"], fixed_Y=job["fixed_Y"],
+        )
+        _configure(m1, 1)
+        m1.optimize()
+        obj1 = _eval(m1)
+
+        # ── Step 2: Y fixed, warm start from step 1 ───────────────────────────
+        m2 = build_model(
+            f"SAA_s2_{rid}", P, P0, H, S_train, d_train, pi_train,
+            SPECS, q_pq, _BETA, _T_START, _T_CLOSE, _C,
+            fixed_Y=job["fixed_Y"],
+        )
+        warm_s2 = m1.SolCount > 0
+        if warm_s2:
+            m1_by_name = {v.VarName: v for v in m1.getVars()}
+            for v2 in m2.getVars():
+                v1 = m1_by_name.get(v2.VarName)
+                if v1 is not None:
+                    v2.Start = v1.X
+            m2.update()
+        _configure(m2, 2, with_mip_focus=warm_s2)
+        m2.optimize()
+        obj2 = _eval(m2)
+
+        # ── Step 3: all free, warm start from step 2 (with permutation) ──────
+        m3 = build_model(
+            f"SAA_s3_{rid}", P, P0, H, S_train, d_train, pi_train,
+            SPECS, q_pq, _BETA, _T_START, _T_CLOSE, _C,
+        )
+        # _warm_start_s2_to_s3 calls m3.update() and sets MIPFocus=1 internally
+        if m2.SolCount > 0:
+            _warm_start_s2_to_s3(m2, m3, P, P0, H, S_train, SPECS)
+        _configure(m3, 3, with_mip_focus=False)  # MIPFocus already set by warm start
+        m3.optimize()
+        obj3 = _eval(m3)
+
+        return obj1, obj2, obj3
+
     except Exception as exc:
         print(f"\n  [WARN] N={job['N']} rep={job['rep']}: {exc}", flush=True)
-        return float("nan")
+        return float("nan"), float("nan"), float("nan")
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# 4b. SAA LOOP
+# 4c. SAA LOOP
 # ─────────────────────────────────────────────────────────────────────────────
 
-def run_saa(args) -> tuple[list, str]:
-    """Execute the full SAA convergence experiment and stream results to CSV."""
+def run_saa(args) -> dict[int, str]:
+    """Execute the full SAA convergence experiment and stream results to CSV.
+    Returns {step: csv_path} for steps 1, 2, 3.
+    """
     print(f"\n{'=' * 65}")
-    print(f"  SAA Convergence Experiment")
-    print(f"  Step={args.step}  WL={args.wl}  "
-          f"N={args.n_start}..{args.n_max} (Δ={args.n_step})")
+    print(f"  SAA Convergence Experiment (steps 1, 2, 3)")
+    print(f"  WL={args.wl}  N={args.n_start}..{args.n_max} (Δ={args.n_step})")
     print(f"  M={args.m_reps} reps  N'={args.n_prime}  seed={args.start_seed}")
     print(f"  Workers: {args.n_workers}  Methods: {args.methods}")
     print(f"{'=' * 65}\n")
 
-    # ── Load patient data ─────────────────────────────────────────────────────
     df, P, H, P0, SPECS, q_pq, session_ids, session_sequences, patient_to_h = (
         load_data(args.wl)
     )
     print(f"Loaded WL {args.wl}: {len(P)} patients, {len(H)} sessions, "
           f"{len(SPECS)} specialties.\n")
 
-    # ── Generate evaluation scenarios ONCE ───────────────────────────────────
     print(f"Generating N'={args.n_prime} evaluation scenarios "
           f"(random, seed={args.start_seed})...")
     d_eval, S_eval, pi_eval = generate_scenarios(
@@ -326,54 +394,42 @@ def run_saa(args) -> tuple[list, str]:
     )
     print(f"  Done — {len(S_eval)} eval scenarios.\n")
 
-    # ── Prepare step-specific fixed variables ────────────────────────────────
-    if args.step == 1:
-        fixed_X_base = _make_fixed_X(P0, H, session_sequences)
-        fixed_Y_base = _make_fixed_Y(P, H, patient_to_h)
-    elif args.step == 2:
-        fixed_X_base = None
-        fixed_Y_base = _make_fixed_Y(P, H, patient_to_h)
-    else:
-        fixed_X_base = None
-        fixed_Y_base = None
+    fixed_X_s1 = _make_fixed_X(P0, H, session_sequences)
+    fixed_Y    = _make_fixed_Y(P, H, patient_to_h)
 
-    # ── Gurobi time limit ────────────────────────────────────────────────────
-    time_limit = args.time_limit if args.time_limit > 0 else (
-        120 if args.step <= 2 else 300
-    )
+    time_limit = args.time_limit if args.time_limit > 0 else 300
 
-    # ── Output CSV ───────────────────────────────────────────────────────────
     os.makedirs(args.output_dir, exist_ok=True)
-    csv_path = os.path.join(
-        args.output_dir, f"saa_wl{args.wl}_step{args.step}.csv"
-    )
+    csv_paths = {
+        step: os.path.join(args.output_dir, f"saa_wl{args.wl}_step{step}.csv")
+        for step in (1, 2, 3)
+    }
 
-    # Load existing results; keyed by (method, N, replication) for upsert
-    existing_results: dict[tuple, float] = {}
-    if os.path.exists(csv_path):
-        try:
-            df_existing = pd.read_csv(csv_path)
-            for _, row in df_existing.iterrows():
-                key = (row["method"], int(row["N"]), int(row["replication"]))
-                existing_results[key] = float(row["obj_out_of_sample"])
-            print(f"Loaded {len(existing_results)} existing results from: {csv_path}\n")
-        except Exception as e:
-            print(f"Could not read existing CSV ({e}); starting fresh.\n")
-    else:
-        _flush_results_csv(existing_results, csv_path)
+    # Load existing results per step
+    existing: dict[int, dict[tuple, float]] = {step: {} for step in (1, 2, 3)}
+    for step, path in csv_paths.items():
+        if os.path.exists(path):
+            try:
+                df_ex = pd.read_csv(path)
+                for _, row in df_ex.iterrows():
+                    key = (row["method"], int(row["N"]), int(row["replication"]))
+                    existing[step][key] = float(row["obj_out_of_sample"])
+                print(f"Loaded {len(existing[step])} existing step-{step} results from: {path}")
+            except Exception as e:
+                print(f"Could not read {path} ({e}); starting fresh.")
+        else:
+            _flush_results_csv(existing[step], path)
 
-    print(f"Streaming results to: {csv_path}\n")
+    print(f"\nStreaming results to: {args.output_dir}/\n")
 
-    all_rows: list[list] = []
     N_values = list(range(args.n_start, args.n_max + 1, args.n_step))
 
     for method_idx, method in enumerate(args.methods):
         print(f"\n── Method: {_METHOD_LABEL.get(method, method)} ──")
         for N in N_values:
-            rep_objs: list[float] = []
+            step_objs: dict[int, list[float]] = {1: [], 2: [], 3: []}
 
             if args.n_workers > 1:
-                # ── Parallel: dispatch all reps to worker processes ──────────
                 n_cpu = os.cpu_count() or 1
                 gurobi_threads = max(1, n_cpu // args.n_workers)
                 jobs = [
@@ -390,100 +446,68 @@ def run_saa(args) -> tuple[list, str]:
                         "d_eval": d_eval, "S_eval": S_eval, "pi_eval": pi_eval,
                         "time_limit": time_limit,
                         "gurobi_threads": gurobi_threads,
-                        "step": args.step,
-                        "fixed_X": fixed_X_base,
-                        "fixed_Y": fixed_Y_base,
+                        "fixed_X_s1": fixed_X_s1,
+                        "fixed_Y": fixed_Y,
                         "is_k": args.is_k,
                     }
                     for rep in range(args.m_reps)
                 ]
                 with ProcessPoolExecutor(max_workers=args.n_workers) as ex:
-                    rep_objs = list(ex.map(_rep_worker, jobs))
-                # Batch-write results after parallel block (upsert into existing)
-                for rep, obj_out in enumerate(rep_objs):
-                    row = [method, N, rep, obj_out]
-                    all_rows.append(row)
-                    existing_results[(method, N, rep)] = obj_out
-                _flush_results_csv(existing_results, csv_path)
+                    results = list(ex.map(_rep_worker, jobs))
+                for rep, (o1, o2, o3) in enumerate(results):
+                    for step, obj in [(1, o1), (2, o2), (3, o3)]:
+                        step_objs[step].append(obj)
+                        existing[step][(method, N, rep)] = obj
+                for step in (1, 2, 3):
+                    _flush_results_csv(existing[step], csv_paths[step])
+
             else:
-                # ── Sequential: solve reps one by one, stream to CSV ─────────
                 for rep in range(args.m_reps):
-                    # Unique, reproducible seed for every (method, N, rep) triple
                     seed_rep = (
                         args.start_seed
                         + method_idx * 100_000
                         + N * args.m_reps
                         + rep
                     )
-
-                    # Generate N training scenarios
-                    d_train, S_train, pi_train = generate_scenarios(
-                        df, N, method, seed_rep, args.is_k
-                    )
-
-                    # Build and solve the MILP
-                    try:
-                        m = build_model(
-                            f"SAA_{method}_N{N}_r{rep}",
-                            P, P0, H,
-                            S_train, d_train, pi_train,
-                            SPECS, q_pq,
-                            _BETA, _T_START, _T_CLOSE, _C,
-                            fixed_X=fixed_X_base,
-                            fixed_Y=fixed_Y_base,
-                        )
-                        m.setParam("OutputFlag", 0)
-                        m.setParam("TimeLimit", time_limit)
-                        if args.step == 3:
-                            m.setParam("MIPGap", 0.01)
-                            m.setParam("Presolve", 2)
-                            m.setParam("Cuts", 2)
-                            m.setParam("Heuristics", 0.3)
-                        m.optimize()
-
-                        if m.SolCount > 0:
-                            X_vals  = {k: m._X[k].X for k in m._X}
-                            Y_vals  = {k: m._Y[k].X for k in m._Y}
-                            A_vals  = {p: m._A[p].X for p in P}
-                            D_vals  = {k: m._D[k].X for k in m._D}
-                            obj_out = simulate_schedule(
-                                X_vals, Y_vals, A_vals, D_vals,
-                                d_eval, S_eval, pi_eval,
-                                P, H, SPECS,
-                            )
-                        else:
-                            obj_out = float("nan")
-
-                    except Exception as exc:
-                        obj_out = float("nan")
-                        print(f"\n  [WARN] N={N} rep={rep}: {exc}")
-
-                    rep_objs.append(obj_out)
-                    row = [method, N, rep, obj_out]
-                    all_rows.append(row)
-                    # Upsert and rewrite immediately so partial results survive interruptions
-                    existing_results[(method, N, rep)] = obj_out
-                    _flush_results_csv(existing_results, csv_path)
+                    job = {
+                        "method": method, "N": N, "rep": rep,
+                        "seed_rep": seed_rep,
+                        "df": df, "P": P, "P0": P0, "H": H,
+                        "SPECS": SPECS, "q_pq": q_pq,
+                        "d_eval": d_eval, "S_eval": S_eval, "pi_eval": pi_eval,
+                        "time_limit": time_limit,
+                        "gurobi_threads": None,  # use all available threads
+                        "fixed_X_s1": fixed_X_s1,
+                        "fixed_Y": fixed_Y,
+                        "is_k": args.is_k,
+                    }
+                    o1, o2, o3 = _rep_worker(job)
+                    for step, obj in [(1, o1), (2, o2), (3, o3)]:
+                        step_objs[step].append(obj)
+                        existing[step][(method, N, rep)] = obj
+                    for step in (1, 2, 3):
+                        _flush_results_csv(existing[step], csv_paths[step])
 
             # Summary for this N
-            n_ok   = sum(1 for v in rep_objs if not np.isnan(v))
-            n_fail = args.m_reps - n_ok
-            valid  = [v for v in rep_objs if not np.isnan(v)]
-            if valid:
-                mean_v = np.mean(valid)
-                std_v  = np.std(valid, ddof=1) if len(valid) > 1 else 0.0
-                ci_hw  = 1.96 * std_v / np.sqrt(len(valid))
-                print(
-                    f"  N={N:3d}: mean={mean_v:8.2f}  std={std_v:7.2f}"
-                    f"  CI±{ci_hw:6.2f}  "
-                    f"({n_ok} ok / {n_fail} failed)"
-                )
-            else:
-                print(f"  N={N:3d}: all {n_fail} replications failed — "
-                      f"check Gurobi licence or time limit")
+            for step in (1, 2, 3):
+                rep_objs = step_objs[step]
+                n_ok   = sum(1 for v in rep_objs if not np.isnan(v))
+                n_fail = args.m_reps - n_ok
+                valid  = [v for v in rep_objs if not np.isnan(v)]
+                if valid:
+                    mean_v = np.mean(valid)
+                    std_v  = np.std(valid, ddof=1) if len(valid) > 1 else 0.0
+                    ci_hw  = 1.96 * std_v / np.sqrt(len(valid))
+                    print(
+                        f"  N={N:3d} step={step}: mean={mean_v:8.2f}  std={std_v:7.2f}"
+                        f"  CI±{ci_hw:6.2f}  ({n_ok} ok / {n_fail} failed)"
+                    )
+                else:
+                    print(f"  N={N:3d} step={step}: all {n_fail} replications failed — "
+                          f"check Gurobi licence or time limit")
 
-    print(f"\nAll results saved to: {csv_path}")
-    return all_rows, csv_path
+    print(f"\nAll results saved to: {args.output_dir}/")
+    return csv_paths
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -519,7 +543,6 @@ def plot_convergence(
             .agg(mean="mean", std="std", count="count")
             .reset_index()
         )
-        # ddof=1 standard deviation; at least 1 obs to avoid /0
         stats["ci_hw"] = (
             1.96 * stats["std"] / np.sqrt(stats["count"].clip(lower=1))
         )
@@ -527,7 +550,6 @@ def plot_convergence(
         color = _METHOD_COLOR.get(method, "#bab0ac")
         label = _METHOD_LABEL.get(method, method)
 
-        # Mean line + markers
         fig.add_trace(go.Scatter(
             x=stats["N"],
             y=stats["mean"],
@@ -537,7 +559,6 @@ def plot_convergence(
             marker=dict(size=6),
         ))
 
-        # 95 % CI shaded band
         x_band = pd.concat([stats["N"], stats["N"][::-1]], ignore_index=True)
         y_band = pd.concat(
             [stats["mean"] + stats["ci_hw"],
@@ -600,10 +621,6 @@ def _parse_args() -> argparse.Namespace:
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
     p.add_argument(
-        "--step", type=int, required=True, choices=[1, 2, 3],
-        help="Model step: 1=timing only, 2=sequencing+timing, 3=full MILP",
-    )
-    p.add_argument(
         "--wl", type=int, required=True, choices=[4, 7, 10, 13],
         help="Waiting list / workload (4 | 7 | 10 | 13)",
     )
@@ -639,8 +656,8 @@ def _parse_args() -> argparse.Namespace:
     p.add_argument(
         "--time-limit", type=int, default=0,
         help=(
-            "Gurobi time limit per solve (seconds). "
-            "0 = auto: 120 s for steps 1-2, 300 s for step 3."
+            "Gurobi time limit per solve per step (seconds). "
+            "0 = auto: 300 s."
         ),
     )
     p.add_argument(
@@ -653,7 +670,7 @@ def _parse_args() -> argparse.Namespace:
     )
     p.add_argument(
         "--output-dir", type=str, default="output",
-        help="Directory for CSV results and convergence plot",
+        help="Directory for CSV results and convergence plots",
     )
     p.add_argument(
         "--is-k", type=float, default=1.0,
@@ -664,5 +681,6 @@ def _parse_args() -> argparse.Namespace:
 
 if __name__ == "__main__":
     args = _parse_args()
-    _, csv_path = run_saa(args)
-    plot_convergence(csv_path, args.wl, args.step, args.output_dir)
+    csv_paths = run_saa(args)
+    for step, path in csv_paths.items():
+        plot_convergence(path, args.wl, step, args.output_dir)

@@ -380,13 +380,9 @@ def build_model(
     # Guarded by fixed_Y is None: Steps 1 and 2 fix sessions via Y or X,
     # so any session-ordering constraint would conflict with those fixed values.
     if fixed_Y is None:
-        # (SB1) Strong specialty-session block separation.
-        # Specialties are fixed in sorted order (e.g. CHI → KNO → ORT).
-        # For each pair (q1, q2) where q1 precedes q2, every session of q1
-        # must have a strictly lower index than every session of q2.
-        # Enforced by the pairwise cut: V[h1, q1] + V[h2, q2] ≤ 1 for all h1 > h2.
-        # This is much tighter than a center-of-mass constraint and rules out any
-        # assignment where a later session index is used for an earlier specialty.
+        # (SB1) Specialty-block ordering: all sessions of specialty q1 must occupy
+        # strictly lower indices than all sessions of q2 whenever q1 precedes q2
+        # in SPECS.  Cut: V[h1,q1] + V[h2,q2] ≤ 1 for every h1 > h2 pair.
         for idx1, q1 in enumerate(SPECS):
             for idx2, q2 in enumerate(SPECS):
                 if idx1 >= idx2:
@@ -399,6 +395,22 @@ def build_model(
                             V[h1, q1] + V[h2, q2] <= 1,
                             name=f"sym_order_{q1}_{q2}_{h1}_{h2}",
                         )
+
+        # (SB2) Within-specialty ordering by first-patient ID: for sessions h1 < h2
+        # both assigned specialty q, the depot-successor (first patient) in h1 must
+        # have a strictly lower patient ID than the depot-successor in h2.
+        # Cut: V[h1,q] + V[h2,q] + X[0,p1,h1] + X[0,p2,h2] ≤ 3
+        # for every (p1,p2) pair where ID(p1) > ID(p2).
+        p_sorted = sorted(P)
+        for q in SPECS:
+            for i_h, h1 in enumerate(H):
+                for h2 in H[i_h + 1:]:          # h1 < h2
+                    for i_p, p2 in enumerate(p_sorted):
+                        for p1 in p_sorted[i_p + 1:]:   # ID(p1) > ID(p2)
+                            m.addConstr(
+                                V[h1, q] + V[h2, q] + X[0, p1, h1] + X[0, p2, h2] <= 3,
+                                name=f"sym_first_{q}_{h1}_{h2}_{p1}_{p2}",
+                            )
 
 
     # Attach variable references for post-solve access
