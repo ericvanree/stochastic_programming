@@ -42,7 +42,6 @@ from saa import (
     _T_START,
     _T_CLOSE,
     _C,
-    _M_BIG,
     _BETA,
 )
 
@@ -96,7 +95,7 @@ def run_mvpi(args) -> pd.DataFrame:
         P, P0, H,
         S_train, d_train, pi_train,
         SPECS, q_pq,
-        _BETA, _T_START, _T_CLOSE, _C, _M_BIG,
+        _BETA, _T_START, _T_CLOSE, _C,
         fixed_X=fixed_X,
         fixed_Y=fixed_Y,
     )
@@ -104,6 +103,9 @@ def run_mvpi(args) -> pd.DataFrame:
     m_policy.setParam("TimeLimit", time_limit)
     if args.step == 3:
         m_policy.setParam("MIPGap", 0.01)
+        m_policy.setParam("Presolve", 2)
+        m_policy.setParam("Cuts", 2)
+        m_policy.setParam("Heuristics", 0.3)
     m_policy.optimize()
 
     if m_policy.SolCount == 0:
@@ -154,7 +156,7 @@ def run_mvpi(args) -> pd.DataFrame:
             P, P0, H,
             [0], d_pi, prob_pi,
             SPECS, q_pq,
-            _BETA, _T_START, _T_CLOSE, _C, _M_BIG,
+            _BETA, _T_START, _T_CLOSE, _C,
             fixed_X=fixed_X,
             fixed_Y=fixed_Y,
         )
@@ -162,6 +164,9 @@ def run_mvpi(args) -> pd.DataFrame:
         m_pi.setParam("TimeLimit", time_limit)
         if args.step == 3:
             m_pi.setParam("MIPGap", 0.01)
+            m_pi.setParam("Presolve", 2)
+            m_pi.setParam("Cuts", 2)
+            m_pi.setParam("Heuristics", 0.3)
         m_pi.optimize()
 
         if m_pi.SolCount == 0:

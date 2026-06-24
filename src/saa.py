@@ -267,7 +267,7 @@ def _rep_worker(job: dict) -> float:
             job["P"], job["P0"], job["H"],
             S_train, d_train, pi_train,
             job["SPECS"], job["q_pq"],
-            _BETA, _T_START, _T_CLOSE, _C, _M_BIG,
+            _BETA, _T_START, _T_CLOSE, _C,
             fixed_X=job["fixed_X"],
             fixed_Y=job["fixed_Y"],
         )
@@ -276,6 +276,9 @@ def _rep_worker(job: dict) -> float:
         m.setParam("Threads", job["gurobi_threads"])
         if job["step"] == 3:
             m.setParam("MIPGap", 0.01)
+            m.setParam("Presolve", 2)
+            m.setParam("Cuts", 2)
+            m.setParam("Heuristics", 0.3)
         m.optimize()
 
         if m.SolCount > 0:
@@ -425,7 +428,7 @@ def run_saa(args) -> tuple[list, str]:
                             P, P0, H,
                             S_train, d_train, pi_train,
                             SPECS, q_pq,
-                            _BETA, _T_START, _T_CLOSE, _C, _M_BIG,
+                            _BETA, _T_START, _T_CLOSE, _C,
                             fixed_X=fixed_X_base,
                             fixed_Y=fixed_Y_base,
                         )
@@ -433,6 +436,9 @@ def run_saa(args) -> tuple[list, str]:
                         m.setParam("TimeLimit", time_limit)
                         if args.step == 3:
                             m.setParam("MIPGap", 0.01)
+                            m.setParam("Presolve", 2)
+                            m.setParam("Cuts", 2)
+                            m.setParam("Heuristics", 0.3)
                         m.optimize()
 
                         if m.SolCount > 0:

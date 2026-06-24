@@ -48,8 +48,8 @@ from sampling import generate_scenarios
 if __name__ == "__main__":
     # ══ Scenario parameters ════════════════════════════════════════════════════
     N_SCENARIOS     = 11           # 0 = deterministic expected duration
-    SAMPLING_METHOD = "is"    # 'expected' | 'random' | 'lhs' | 'is'
-    IS_K            = 1.0     # shift magnitude for IS (delta ∈ {-k, 0, k}); ignored for other methods
+    SAMPLING_METHOD = "random"    # 'expected' | 'random' | 'lhs' | 'is'
+    IS_K            = 0.5    # shift magnitude for IS (delta ∈ {-k, 0, k}); ignored for other methods
     RANDOM_SEED     = 42
 
     # ══ Load CSV ═══════════════════════════════════════════════════════════════
@@ -82,20 +82,18 @@ if __name__ == "__main__":
     t_start = 480      # session opening  (08:00 in min from midnight)
     t_close = 960      # session closing  (16:00 in min from midnight)
     c       = 10       # changeover / cleaning time between patients (min)
-    M_BIG   = 5_000    # big-M  (safely above any feasible time horizon)
 
     # Objective weights β₁ (wait) β₂ (idle) β₃ (overtime) β₄ (specialty mismatch)
     beta = {"W": 0.6, "I": 0.2, "O": 0.2, "D": 100.0}
 
     # ══ Gurobi time limits (seconds) per solve step ════════════════════════════
-    TIME_LIMIT_STEP1 = 3600   # Step 1 — Timing only
-    TIME_LIMIT_STEP2 = 3600  # Step 2 — Sequencing + timing
-    TIME_LIMIT_STEP3 = 3600  # Step 3 — Full MILP
+    TIME_LIMIT_STEP1 = 600   # Step 1 — Timing only
+    TIME_LIMIT_STEP2 = 600  # Step 2 — Sequencing + timing
+    TIME_LIMIT_STEP3 = 600  # Step 3 — Full MILP
 
     # ══ Specialty membership ═══════════════════════════════════════════════════
     specialty_of = {row["Patient ID"]: row["Specialty"] for _, row in df.iterrows()}
     q_pq         = {(p, q): int(specialty_of[p] == q) for p in P for q in SPECS}
-
     # ══ Patient → session assignment (from CSV) ════════════════════════════════
     patient_to_h = {
         row["Patient ID"]: h_of[row["Session ID"]] for _, row in df.iterrows()
@@ -138,7 +136,7 @@ def build_model(
     name,
     P, P0, H, S, d, pi,
     SPECS, q_pq,
-    beta, t_start, t_close, c, M_BIG,
+    beta, t_start, t_close, c,
     fixed_X=None, fixed_Y=None,
 ):
     """
@@ -159,7 +157,6 @@ def build_model(
     t_start : int   — session opening time (minutes)
     t_close : int   — session closing time (minutes)
     c       : int   — changeover time (minutes)
-    M_BIG   : float — big-M constant
     fixed_X : dict  — optional {(i, j, h): 0/1} — fixes the entire X matrix
                       (Step 1: timing only)
     fixed_Y : dict  — optional {(p, h): 0/1}    — fixes the entire Y matrix
@@ -211,8 +208,8 @@ def build_model(
     )
 
     # ── Second-stage variables (one copy per scenario) ─────────────────────────
-    # Start times
-    Sv = m.addVars([(p, s) for p in P for s in S], lb=0, name="S")
+    # Start times — lb = t_start because no patient can start before session opens.
+    Sv = m.addVars([(p, s) for p in P for s in S], lb=t_start, name="S")
     # Waiting time
     W  = m.addVars([(p, s) for p in P for s in S], lb=0, name="W")
     # Idle time between consecutive patient pairs
@@ -243,18 +240,13 @@ def build_model(
         for key, val in fixed_Y.items():
             Y[key].lb = Y[key].ub = float(val)
 
-    # ── Per-constraint tight big-M values ─────────────────────────────────────
-    # Derived from actual scenario durations; much tighter than the global M_BIG,
-    # which improves LP-relaxation quality and branch-and-bound performance.
-
-    # Largest duration in any (patient, scenario) pair
-    max_d   = max(d.values()) if d else float(M_BIG)
-    # Temporal horizon: worst-case schedule length (all |P| patients in sequence)
-    M_time  = float(len(P) * (max_d + c))
-    # Appointment bound: A_p − t_start ≤ t_close − t_start  (exact tight)
-    M_first = float(t_close - t_start)
     # Violation count: ∑_p Y[p,h]·q[p,q] ≤ |P|  (exact tight)
-    M_viol  = float(len(P))
+    M_viol = float(len(P))
+    # Temporal big-M: tight upper bound on any feasible time expression.
+    # = worst-case schedule length (all patients in sequence, worst scenario duration).
+    # Much tighter than a global constant; critical for LP relaxation quality.
+    max_d  = max(d.values()) if d else float(t_close - t_start)
+    M_time = float(len(P) * (max_d + c))
 
     # ── First-stage constraints ────────────────────────────────────────────────
 
@@ -323,20 +315,22 @@ def build_model(
         name="mtz",
     )
 
-    # First patient in a session is scheduled at opening time:
-    # A[p]  ≤  t_start + M·(1 − Σ_h X[0,p,h])
-    m.addConstrs(
-        (
-            A[p] <= t_start + M_first * (1 - gp.quicksum(X[0, p, h] for h in H))
-            for p in P
-        ),
-        name="start_first",
-    )
+    # First patient in a session is scheduled at opening time.
+    # Indicator form: X[0,p,h] = 1 (p is first in session h) ⟹ A[p] ≤ t_start.
+    # Replaces the big-M formulation; the LP relaxation sees an exact bound.
+    for p in P:
+        for h in H:
+            m.addGenConstrIndicator(
+                X[0, p, h], True, A[p], GRB.LESS_EQUAL, float(t_start),
+                name=f"start_first_{p}_{h}",
+            )
 
     # ── Second-stage constraints (replicated over all scenarios) ───────────────
 
-    # Start time propagation: if p' directly follows p, respect duration + changeover
-    # S[p',s]  ≥  S[p,s] + d[p,s] + c  −  M·(1 − X[p,p',h])
+    # Start time propagation: if p' directly follows p in session h,
+    # S[p',s] ≥ S[p,s] + d[p,s] + c.  Big-M form keeps the LP relaxation tight
+    # (Gurobi converts indicator constraints to SOS1, which the LP ignores,
+    # collapsing the root bound to ~0 and preventing any pruning).
     m.addConstrs(
         (
             Sv[pp, s] >= Sv[p, s] + d[p, s] + c - M_time * (1 - X[p, pp, h])
@@ -359,8 +353,8 @@ def build_model(
         name="wait",
     )
 
-    # Overtime: finish beyond session closing time
-    # O[h,s]  ≥  S[p,s] + d[p,s] − t_close  −  M·(1 − Y[p,h])
+    # Overtime: finish of assigned patient beyond session close.
+    # Big-M form so the LP relaxation enforces this for fractional Y.
     m.addConstrs(
         (
             Ov[h, s] >= Sv[p, s] + d[p, s] - t_close - M_time * (1 - Y[p, h])
@@ -369,8 +363,8 @@ def build_model(
         name="overtime",
     )
 
-    # Idle time between consecutive patients p → p':
-    # I[p,p',s]  ≥  S[p',s] − S[p,s] − d[p,s] − c − M·(1 − Σ_h X[p,p',h])
+    # Idle time between consecutive patients p → p'.
+    # Summed over sessions: X[p,p',h] can be 1 in at most one h.
     m.addConstrs(
         (
             Iv[p, pp, s] >= (
@@ -381,6 +375,31 @@ def build_model(
         ),
         name="idle",
     )
+
+    # ── Symmetry-breaking constraints (Step 3 only — session assignment is free) ──
+    # Guarded by fixed_Y is None: Steps 1 and 2 fix sessions via Y or X,
+    # so any session-ordering constraint would conflict with those fixed values.
+    if fixed_Y is None:
+        # (SB1) Strong specialty-session block separation.
+        # Specialties are fixed in sorted order (e.g. CHI → KNO → ORT).
+        # For each pair (q1, q2) where q1 precedes q2, every session of q1
+        # must have a strictly lower index than every session of q2.
+        # Enforced by the pairwise cut: V[h1, q1] + V[h2, q2] ≤ 1 for all h1 > h2.
+        # This is much tighter than a center-of-mass constraint and rules out any
+        # assignment where a later session index is used for an earlier specialty.
+        for idx1, q1 in enumerate(SPECS):
+            for idx2, q2 in enumerate(SPECS):
+                if idx1 >= idx2:
+                    continue
+                for h1 in H:
+                    for h2 in H:
+                        if h1 <= h2:
+                            continue  # h1 > h2: q1 at higher index than q2 → forbidden
+                        m.addConstr(
+                            V[h1, q1] + V[h2, q2] <= 1,
+                            name=f"sym_order_{q1}_{q2}_{h1}_{h2}",
+                        )
+
 
     # Attach variable references for post-solve access
     m._A, m._X, m._Y, m._Z = A, X, Y, Z
@@ -705,7 +724,7 @@ if __name__ == "__main__":
         "Step1_TimingOnly",
         P, P0, H, S, d, pi,
         SPECS, q_pq,
-        beta, t_start, t_close, c, M_BIG,
+        beta, t_start, t_close, c,
         fixed_X=fixed_X_s1,
     )
     m1.setParam("TimeLimit", TIME_LIMIT_STEP1)
@@ -729,10 +748,23 @@ if __name__ == "__main__":
         "Step2_SeqTiming",
         P, P0, H, S, d, pi,
         SPECS, q_pq,
-        beta, t_start, t_close, c, M_BIG,
+        beta, t_start, t_close, c,
         fixed_Y=fixed_Y_s2,
     )
     m2.setParam("TimeLimit", TIME_LIMIT_STEP2)
+
+    # ══ Warm start: seed Step 2 from the Step 1 solution ════════════════════════
+    # Step 1 fixes both X and Y; its solution is feasible for Step 2 (Y fixed,
+    # X free) and gives Gurobi a good incumbent from which to search.
+    if m1.SolCount > 0:
+        m1_var_by_name = {v.VarName: v for v in m1.getVars()}
+        for v2 in m2.getVars():
+            v1 = m1_var_by_name.get(v2.VarName)
+            if v1 is not None:
+                v2.Start = v1.X
+        m2.update()
+        m2.setParam("MIPFocus", 1)
+
     m2.optimize()
     print_solution(m2, "Step 2 — Sequencing + timing (session fixed from CSV, sequence free)")
     sol2 = extract_solution(m2)
@@ -748,10 +780,85 @@ if __name__ == "__main__":
         "Step3_FullMILP",
         P, P0, H, S, d, pi,
         SPECS, q_pq,
-        beta, t_start, t_close, c, M_BIG,
+        beta, t_start, t_close, c,
     )
     m3.setParam("TimeLimit", TIME_LIMIT_STEP3)
     m3.setParam("MIPGap", 0.01)
+    m3.setParam("Presolve", 2)       # aggressive presolve
+    m3.setParam("Cuts", 2)           # more cutting planes at root
+    m3.setParam("Heuristics", 0.3)   # spend more time on primal heuristics
+
+    # ══ Warm start: seed Step 3 from the Step 2 solution ════════════════════════
+    # Step 2's session assignment is the CSV assignment.  Step 3 has SB1+SB2
+    # constraints that require sessions of the same specialty to be ordered by
+    # the rank of their first patient (lowest ID → lowest session index).
+    # A direct name-by-name copy would violate SB2 and cause Gurobi to discard
+    # the MIP start entirely.  Instead we compute a within-specialty permutation
+    # that reorders session content to satisfy SB2, then inject that.
+    if m2.SolCount > 0:
+        # -- Build permutation perm[h_src] = h_dest ----------------------------
+        # For each specialty, sort the sessions by their first patient's rank;
+        # assign the sorted order to session indices sorted by h.
+        p_rank_ws = {p: k for k, p in enumerate(sorted(P))}
+        first_rank  = {}  # h -> rank of first patient (inf if session closed)
+        spec_of_h   = {}  # h -> specialty string
+        for h in H:
+            if m2._Z[h].X < 0.5:
+                first_rank[h] = float("inf")
+                spec_of_h[h]  = None
+                continue
+            p_first = next((p for p in P if m2._X[0, p, h].X > 0.5), None)
+            first_rank[h] = p_rank_ws[p_first] if p_first is not None else float("inf")
+            spec_of_h[h]  = next((q for q in SPECS if m2._V[h, q].X > 0.5), None)
+
+        # Build permutation that satisfies both SB1 (specialty block order) and
+        # SB2 (within-specialty first-patient rank order).
+        # Sort all sessions globally: SPECS[0] sessions first (sorted by
+        # first-patient rank), then SPECS[1], …, then any remaining sessions.
+        # The k-th element in this sorted list is mapped to session index k.
+        sorted_src: list[int] = []
+        for q in SPECS:
+            sessions_of_q = [h for h in H if spec_of_h.get(h) == q]
+            sorted_src.extend(sorted(sessions_of_q, key=lambda h: first_rank[h]))
+        for h in H:  # append closed / unassigned sessions at the end
+            if h not in sorted_src:
+                sorted_src.append(h)
+        perm = {h_src: h_dest for h_src, h_dest in zip(sorted_src, sorted(H))}
+
+        # -- Inject warm start with permuted session indices -------------------
+        for p in P:
+            m3._A[p].Start = m2._A[p].X
+            for h in H:
+                m3._Y[p, perm[h]].Start = m2._Y[p, h].X
+        for i in P0:
+            for j in P0:
+                if i == j:
+                    continue
+                for h in H:
+                    if (i, j, h) in m2._X and (i, j, perm[h]) in m3._X:
+                        m3._X[i, j, perm[h]].Start = m2._X[i, j, h].X
+        for h in H:
+            m3._Z[perm[h]].Start = m2._Z[h].X
+            for q in SPECS:
+                m3._V[perm[h], q].Start = m2._V[h, q].X
+                m3._D[perm[h], q].Start = m2._D[h, q].X
+        for p in P:
+            for s in S:
+                m3._S[p, s].Start = m2._S[p, s].X
+                m3._W[p, s].Start = m2._W[p, s].X
+        for p in P:
+            for pp in P:
+                if p == pp:
+                    continue
+                for s in S:
+                    m3._I[p, pp, s].Start = m2._I[p, pp, s].X
+        for h in H:
+            for s in S:
+                m3._O[perm[h], s].Start = m2._O[h, s].X
+
+        m3.update()
+        m3.setParam("MIPFocus", 1)
+
     m3.optimize()
     print_solution(m3, "Step 3 — Full MILP (all decisions free)")
     sol3 = extract_solution(m3)
