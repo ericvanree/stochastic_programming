@@ -270,6 +270,16 @@ def _warm_start_s2_to_s3(m2, m3, P, P0, H, S_train, SPECS) -> None:
     for h in H:
         for s in S_train:
             m3._O[perm[h], s].Start = m2._O[h, s].X
+    # Inject MTZ position values derived from X arcs so the MIP start is complete.
+    for h in H:
+        dest_h = perm[h]
+        cur, pos = 0, 1
+        for _ in range(len(P)):
+            nxt = next((p for p in P if p != cur and m2._X[cur, p, h].X > 0.5), None)
+            if nxt is None:
+                break
+            m3._U[nxt, dest_h].Start = float(pos)
+            cur, pos = nxt, pos + 1
     m3.update()
     m3.setParam("MIPFocus", 1)
 
@@ -302,7 +312,7 @@ def _rep_worker(job: dict) -> tuple[float, float, float]:
         if with_mip_focus:
             m.setParam("MIPFocus", 1)
         if step == 3:
-            m.setParam("MIPGap", 0.01)
+            m.setParam("MIPGap", 0.05)   # 5 % gap; convergence tracks out-of-sample obj
             m.setParam("Presolve", 2)
             m.setParam("Cuts", 2)
             m.setParam("Heuristics", 0.3)
@@ -376,7 +386,7 @@ def run_saa(args) -> dict[int, str]:
     """
     print(f"\n{'=' * 65}")
     print(f"  SAA Convergence Experiment (steps 1, 2, 3)")
-    print(f"  WL={args.wl}  N={args.n_start}..{args.n_max} (Δ={args.n_step})")
+    print(f"  WL={args.wl}  N={args.n_start}..{args.n_max} (step={args.n_step})")
     print(f"  M={args.m_reps} reps  N'={args.n_prime}  seed={args.start_seed}")
     print(f"  Workers: {args.n_workers}  Methods: {args.methods}")
     print(f"{'=' * 65}\n")
@@ -392,7 +402,7 @@ def run_saa(args) -> dict[int, str]:
     d_eval, S_eval, pi_eval = generate_scenarios(
         df, args.n_prime, "random", args.start_seed
     )
-    print(f"  Done — {len(S_eval)} eval scenarios.\n")
+    print(f"  Done - {len(S_eval)} eval scenarios.\n")
 
     fixed_X_s1 = _make_fixed_X(P0, H, session_sequences)
     fixed_Y    = _make_fixed_Y(P, H, patient_to_h)
@@ -425,7 +435,7 @@ def run_saa(args) -> dict[int, str]:
     N_values = list(range(args.n_start, args.n_max + 1, args.n_step))
 
     for method_idx, method in enumerate(args.methods):
-        print(f"\n── Method: {_METHOD_LABEL.get(method, method)} ──")
+        print(f"\n-- Method: {_METHOD_LABEL.get(method, method)} --")
         for N in N_values:
             step_objs: dict[int, list[float]] = {1: [], 2: [], 3: []}
 
@@ -500,10 +510,10 @@ def run_saa(args) -> dict[int, str]:
                     ci_hw  = 1.96 * std_v / np.sqrt(len(valid))
                     print(
                         f"  N={N:3d} step={step}: mean={mean_v:8.2f}  std={std_v:7.2f}"
-                        f"  CI±{ci_hw:6.2f}  ({n_ok} ok / {n_fail} failed)"
+                        f"  CI+/-{ci_hw:6.2f}  ({n_ok} ok / {n_fail} failed)"
                     )
                 else:
-                    print(f"  N={N:3d} step={step}: all {n_fail} replications failed — "
+                    print(f"  N={N:3d} step={step}: all {n_fail} replications failed - "
                           f"check Gurobi licence or time limit")
 
     print(f"\nAll results saved to: {args.output_dir}/")

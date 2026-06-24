@@ -1,0 +1,446 @@
+\section{Mathematical model}
+\label{sec:mathematical_model}
+In this chapter we introduce the integer linear program used to solve the instances. 
+The model is formulated as a two-stage stochastic mixed-integer linear program and
+is solved through its deterministic equivalent formulation.
+
+\subsection{Sets and Indices}
+
+\begin{itemize}
+  \item $p \in P$ -- set of patients (surgeries)
+  \item $P_0 = P \cup \{0\}$ -- patients plus dummy depot node (session start)
+  \item $h \in H$ -- set of available OR sessions
+  \item $s \in S$ -- set of scenarios
+  \item $q \in Q = \{\text{CHI},\text{ORT},\text{KNO}\}$ -- set of surgical
+        specialties
+\end{itemize}
+
+\subsection{Parameters}
+
+\begin{itemize}
+  \item $d_{ps}$ -- surgery duration of patient $p$ in scenario $s$
+  \item $\pi_s$ -- probability of scenario $s$,
+        where $\sum_{s \in S} \pi_s = 1$
+  \item $c$ -- changeover time
+  \item $t^{\text{start}}$ -- common session start time (identical for all ORs)
+  \item $t^{\text{close}}$ -- common session closing time (identical for all
+        ORs)
+  \item $q_{pq} \in \{0,1\}$ -- 1 if patient $p$ belongs to specialty $q$
+  \item $M$ -- sufficiently large constant (big-$M$)
+  \item $\beta_1=0.6, \beta_2=0.2, \beta_3=0.2, \beta_4=100$ -- weights for waiting time, idle
+        time, overtime, and specialty mismatch, respectively
+\end{itemize}
+
+\subsection{First-Stage Decision Variables}
+
+The following decisions are made before scenario realisation:
+
+\begin{itemize}
+  \item $A_p$ -- appointment time assigned to patient $p$
+  \item $X_{ijh}$ -- 1 if patient $j$ is scheduled directly after
+        patient $i$ in session $h$
+  \item $Y_{ph}$ -- 1 if patient $p$ is assigned to session $h$
+  \item $Z_h$ -- 1 if OR session $h$ is opened
+  \item $V_{hq}$ -- 1 if session $h$ is assigned specialty $q$
+  \item $D_{hq}$ -- number of patients in session $h$ with specialty $q$
+        that are not placed in a session with their specialty
+  \item $U_{ph}$ -- position of patient $p$ in session
+        $h$ (MTZ auxiliary variable)
+\end{itemize}
+
+\subsection{Second-Stage Decision Variables}
+
+The following variables are evaluated per scenario $s$:
+
+\begin{itemize}
+  \item $S_{ps}$ -- start time of patient $p$ under
+        scenario $s$
+  \item $W_{ps}$ -- waiting time of patient $p$ under scenario $s$
+  \item $I_{pp's}$ -- idle time in between patients $p$ and $p'$ under scenario $s$
+  \item $O_{hs}$ -- overtime of session $h$ under scenario $s$
+\end{itemize}
+
+\subsection{Two-Stage Stochastic Formulation}
+
+The model has a two-stage stochastic structure. First-stage decisions are made
+before surgery durations are known. These decisions include appointment times,
+session opening decisions, patient-to-session assignments, sequencing decisions,
+specialty assignments, violation-counting variables, and MTZ auxiliary variables.
+
+Let
+
+\[
+x = (A_p, X_{ijh}, Y_{ph}, Z_h, V_{hq}, D_{hq}, U_{ph})
+\]
+
+denote the vector of first-stage variables.
+
+After a scenario $s \in S$ is realised, the second-stage variables determine
+the realised start times, waiting times, idle times, and overtime. Let
+
+\[
+y_s = (S_{ps}, W_{ps}, I_{pp's}, O_{hs})
+\]
+
+denote the vector of second-stage variables in scenario $s$.
+
+For a fixed first-stage solution $x$ and realised scenario $s$, the second-stage
+problem is formulated as the recourse function $Q(x,s)$, which gives the minimum
+operational cost achievable under scenario $s$ with surgery durations $d_{ps}$.
+The first-stage solution $x$ enters $Q(x,s)$ entirely as fixed parameters:
+$A_p$ fixes each patient's appointment time, while $X_{pp'h}$ and $Y_{ph}$
+fix the sequencing and session assignments respectively.
+
+\begin{align}
+  Q(x, s) = \min_{S,W,I,O} \quad
+    & \beta_1 \sum_{p \in P} W_{ps}
+    + \beta_2 \sum_{p \in P}\sum_{\substack{p' \in P \\ p' \neq p}} I_{pp's}
+    + \beta_3 \sum_{h \in H} O_{hs}
+  \label{eq:recourse_obj}
+\end{align}
+
+\noindent subject to the following scenario-dependent constraints.
+
+\paragraph{Start time propagation.}
+If patient $p'$ follows patient $p$ in session $h$, the start of $p'$ must
+respect patient $p$'s realised duration and the changeover time $c$:
+
+\begin{align}
+  S_{p's} \geq\; & S_{ps} + d_{ps} + c - M\bigl(1 - \sum_{h \in H} X_{pp'h}\bigr)
+  \nonumber \\
+                 & \forall\; p, p' \in P,\; p \neq p',\; s \in S
+  \label{eq:rc_seq}
+\end{align}
+
+\paragraph{Appointment lower bound.}
+A patient cannot start surgery before their appointed time:
+
+\begin{align}
+  S_{ps} \geq\; A_p
+  \qquad \forall\; p \in P,\; s \in S
+  \label{eq:rc_appt}
+\end{align}
+
+\paragraph{Waiting time.}
+Waiting time is the excess of actual start time over appointment time:
+
+\begin{equation}
+  W_{ps} \geq S_{ps} - A_p
+  \qquad \forall\; p \in P,\; s \in S
+  \label{eq:rc_wait}
+\end{equation}
+
+\paragraph{Overtime.}
+Overtime is incurred when any patient's finish time exceeds the session closing
+time. The big-$M$ term deactivates the constraint for patients not in session
+$h$:
+
+\begin{align}
+  O_{hs} \geq\; S_{ps} + d_{ps} - t^{\text{close}} - M(1 - Y_{ph})
+  \qquad \forall\; p \in P,\; h \in H,\; s \in S
+  \label{eq:rc_ot}
+\end{align}
+
+\paragraph{Idle time.}
+Idle time between two consecutively scheduled patients $p$ and $p'$ is the
+gap between the finish time of $p$ and the start time of $p'$, minus the
+mandatory changeover time. The big-$M$ term deactivates the constraint for
+non-consecutive pairs:
+
+\begin{align}
+  I_{pp's} \geq\; & S_{p's} - S_{ps} - d_{ps} - c
+                  - M\Bigl(1 - \sum_{h \in H} X_{pp'h}\Bigr)
+  \nonumber \\
+  & \forall\; p, p' \in P,\; p \neq p',\; s \in S
+  \label{eq:rc_idle}
+\end{align}
+
+\paragraph{Non-negativity.}
+
+\begin{equation}
+  S_{ps},\; W_{ps},\; I_{pp's},\; O_{hs} \geq 0
+  \qquad \forall\; p,p' \in P,\; p \neq p',\; h \in H,\; s \in S
+  \label{eq:rc_nn}
+\end{equation}
+
+\noindent The first-stage variables $A_p$, $X_{ijh}$, $Y_{ph}$, $Z_h$,
+$V_{hq}$, $D_{hq}$, and $U_{ph}$ enter $Q(x,s)$ as fixed parameters. Given
+these, all constraints are linear in the second-stage variables, so $Q(x, s)$
+is a linear program for each $(x, s)$.
+
+The full two-stage stochastic problem can therefore be written as:
+
+\begin{align}
+  \min_x \quad
+    & \beta_4 \sum_{h \in H} \sum_{q \in Q} D_{hq}
+    + \sum_{s \in S} \pi_s Q(x, s)
+  \label{eq:two_stage_obj}
+\end{align}
+
+where the first term represents the scenario-independent specialty mismatch
+penalty, and the second term represents the expected second-stage operational
+cost.
+
+\subsection{Deterministic Equivalent MILP}
+
+Rather than solving $Q(x,s)$ separately for each scenario, the two-stage
+model is reformulated as a single deterministic equivalent by replicating
+the second-stage variables and constraints across all scenarios $s \in S$.
+The deterministic equivalent is a mixed-integer linear program (MILP) formulated in VRP-style.
+
+\subsubsection{Expanded Objective Function}
+
+The objective minimises the expected weighted sum of patient waiting time, OR
+idle time, and OR overtime, together with a scenario-independent penalty for
+specialty violations:
+
+\begin{align}
+  \min \quad
+    & \sum_{s \in S} \pi_s \Bigl[
+        \beta_1 \sum_{p \in P} W_{ps}
+      + \beta_2 \sum_{p \in P}\sum_{\substack{p' \in P \\ p' \neq p}} I_{pp's}
+      + \beta_3 \sum_{h \in H} O_{hs}
+      \Bigr] \nonumber \\
+    & + \; \beta_4 \sum_{h \in H} \sum_{q \in Q} D_{hq}
+  \label{eq:obj}
+\end{align}
+
+The mismatch penalty is scenario-independent because specialty and assignment
+decisions are first-stage.
+
+\subsubsection{First-Stage Constraints}
+
+\paragraph{Appointment time bounds.}
+
+Each appointment must fall within the OR session window, and a patient scheduled
+first within a session should be scheduled at the opening time of the session.
+
+\begin{equation}
+  t^{\text{start}} \leq A_p \leq t^{\text{close}}
+  \qquad \forall\, p \in P
+  \label{eq:appt_bounds}
+\end{equation}
+
+\begin{equation}
+  A_p \leq t^{\text{start}}+M\left(1-\sum_{h \in H}X_{0ph}\right)
+  \qquad \forall\, p \in P
+  \label{eq:start_first}
+\end{equation}
+
+\paragraph{Assignment and session opening.}
+
+Each patient must be assigned to exactly one session:
+
+\begin{equation}
+  \sum_{h \in H} Y_{ph} = 1
+  \qquad \forall\, p \in P
+  \label{eq:assign}
+\end{equation}
+
+A patient can only be assigned to an opened session:
+
+\begin{equation}
+  Y_{ph} \leq Z_h
+  \qquad \forall\, p \in P,\; h \in H
+  \label{eq:open}
+\end{equation}
+
+\paragraph{Specialty assignment.}
+
+Each opened session is assigned exactly one specialty; closed sessions receive
+none:
+
+\begin{equation}
+  \sum_{q \in Q} V_{hq} = Z_h
+  \qquad \forall\, h \in H
+  \label{eq:spec}
+\end{equation}
+
+\paragraph{Specialty violation counting.}
+
+The integer variable $D_{hq}$ counts the number of patients in session $h$
+whose specialty does not match $q$. For each session $h$ and specialty $q$,
+the number of assigned patients belonging to specialty $q$ cannot exceed the
+session capacity unless a violation is recorded:
+
+\begin{equation}
+  \sum_{p \in P} Y_{ph} \cdot q_{pq}
+  \leq M \cdot V_{hq} + D_{hq}
+  \qquad \forall\, h \in H,\; q \in Q
+  \label{eq:viol}
+\end{equation}
+
+When session $h$ is assigned specialty $q$ (i.e.\ $V_{hq} = 1$), the big-$M$
+term is active and $D_{hq} = 0$ is optimal under minimisation provided all
+assigned patients match. When $V_{hq} = 0$, the big-$M$ term vanishes and
+$D_{hq}$ must be at least as large as the number of patients of specialty $q$
+placed in session $h$, recording each as a violation.
+This is a \emph{soft} penalty rather than a hard constraint: specialty mixing is
+discouraged through the weighted term $\beta_4 \sum_{h,q} D_{hq}$ in the
+objective, which matches the data observation that KNO can share a session with
+other specialties but that this should be avoided where possible. A large
+$\beta_4 = 100$ makes such mixing strongly unattractive while keeping the model
+feasible when an unavoidable mismatch occurs.
+
+\paragraph{Routing --- flow conservation.}
+
+The sequencing variables $X_{ijh}$ define a single route per open session,
+mirroring a vehicle routing formulation:
+
+\begin{align}
+  \sum_{p \in P} X_{0ph} &= Z_h
+  \qquad \forall\, h \in H
+  \label{eq:depot} \\[2pt]
+  \sum_{\substack{p' \in P_0 \\ p' \neq p}} X_{pp'h} &= Y_{ph}
+  \qquad \forall\, p \in P,\; h \in H
+  \label{eq:flow_out} \\[2pt]
+  \sum_{\substack{p \in P_0 \\ p \neq p'}} X_{pp'h} &= Y_{p'h}
+  \qquad \forall\, p' \in P,\; h \in H
+  \label{eq:flow_in}
+\end{align}
+
+\paragraph{Sub-tour elimination.}
+
+Miller--Tucker--Zemlin (MTZ) constraints prevent disconnected cycles within a
+session:
+
+\begin{align}
+  U_{ph} - U_{p'h} + |P|\, X_{pp'h} \leq |P| - 1 \nonumber \\
+  \forall\, p,p' \in P,\; p \neq p',\; h \in H
+  \label{eq:mtz}
+\end{align}
+
+\paragraph{First-stage domains.}
+
+\begin{align}
+  & X_{ijh},\; Y_{ph},\; Z_h,\; V_{hq} \in \{0,1\}
+  \label{eq:dom_bin} \\[2pt]
+  & D_{hq},\; U_{ph} \in \mathbb{Z}_{\geq 0}
+  \qquad
+  \label{eq:dom_viol} \\[2pt]
+  & A_p \geq 0
+  \label{eq:dom_appt}
+\end{align}
+
+\subsubsection{Scenario-Dependent Second-Stage Constraints}
+
+The following constraints are included for each scenario $s \in S$.
+
+\paragraph{Timing --- start time propagation.}
+
+If patient $p'$ immediately follows patient $p$ in session $h$, the start time
+of $p'$ must respect $p$'s realised duration and the changeover time:
+
+\begin{align}
+  S_{p's} \geq\; & S_{ps} + d_{ps} + c - M\bigl(1 - \sum_{h \in H} X_{pp'h}\bigr)
+  \nonumber \\
+                 & \forall\; p, p' \in P,\; p \neq p', s \in S
+  \label{eq:time_seq}
+\end{align}
+
+\paragraph{Session lower bounds.}
+
+A patient's surgery cannot start before the session opens or before the
+patient's appointment time:
+
+\begin{align}
+  S_{ps} &\geq A_p
+  \qquad \forall\, p \in P,\; s \in S
+  \label{eq:lb_appt}
+\end{align}
+
+\paragraph{Waiting time.}
+
+Patient waiting time is the positive difference between the actual start time
+and the planned start time, i.e., the appointment time:
+
+\begin{equation}
+  W_{ps} \geq S_{ps} - A_p
+  \qquad \forall\, p \in P,\; s \in S
+  \label{eq:wait}
+\end{equation}
+
+\paragraph{Overtime.}
+
+Overtime in session $h$ under scenario $s$ is the amount of time by which the
+last patient's finish time exceeds the closing time:
+
+\begin{align}
+  O_{hs} \geq\; &
+                    S_{ps} + d_{ps}
+                  - t^{\text{close}}-M(1- Y_{ph}) \nonumber \\
+                & \forall\, p \in P,\;\forall\, h \in H,\; s \in S
+  \label{eq:overtime}
+\end{align}
+
+\paragraph{Idle time.}
+
+The idle time is defined as the time between the end time and starting time of
+two consecutively scheduled surgeries minus the mandatory changeover time
+between two subsequent surgeries:
+
+\begin{align}
+  I_{pp's} \geq\; & S_{p's}-S_{ps}-d_{ps}-
+                  c-M\left(1-\sum_{h \in H}X_{pp'h}\right) \nonumber \\
+                &  \forall\, p,p' \in P,\; p \neq p',\; s \in S
+  \label{eq:idle}
+\end{align}
+
+\paragraph{Second-stage domains.}
+
+\begin{equation}
+  S_{ps},\; W_{ps},\; I_{pp's},\; O_{hs} \geq 0
+  \qquad \forall\, p,p' \in P,\; p \neq p',\; h \in H,\; s \in S
+  \label{eq:dom_second}
+\end{equation}
+
+The deterministic equivalent is obtained by combining the expanded objective
+\eqref{eq:obj}, the first-stage constraints
+\eqref{eq:appt_bounds}--\eqref{eq:dom_appt}, and the scenario-dependent
+second-stage constraints \eqref{eq:time_seq}--\eqref{eq:dom_second} for all
+scenarios $s \in S$.
+
+The DE is a mixed-integer linear program (MILP): all integrality requirements
+appear in the first stage, and the second-stage subproblem is a pure LP for
+any fixed first-stage solution. The total number of second-stage variables
+scales as $\mathcal{O}(|S| \cdot (|P| + |H|))$, so tractability depends on
+keeping $|S|$ moderate, for instance through Sample Average Approximation
+(SAA), in which $|S|$ scenarios are drawn from the duration distribution and
+the DE is solved once.
+
+\subsection{Experimental Model Variants}
+
+\subsubsection{Step 1: Timing Only}
+
+In the first step we only evaluate the timing of treatments already being
+assigned to a session and a position within the session by constraining
+$X_{ijh}$.
+
+\subsubsection{Step 2: Sequencing + Timing}
+
+In the second step we evaluate the timing and sequencing of treatments that are
+already assigned to a session, by constraining $Y_{ph}$.
+
+\subsubsection{Step 3: Full Model}
+
+In the third step we evaluate the timing, sequencing, and assignment of
+treatments by evaluating the full model.
+
+\paragraph{Computational tractability.}
+The full model is a large-scale MILP whose LP relaxation is weakened by the
+Big-$M$ coefficient in the sequencing propagation constraint~\eqref{eq:seq},
+where $M = |P|(d_{\max} + c)$ becomes non-binding for fractional arc
+variables, inflating the search tree.
+To reduce the solution space, two families of symmetry-breaking constraints are
+added when the session assignment is free (Step~3 only).
+\textbf{SB1} enforces a canonical specialty ordering across sessions: sessions
+of specialty~$q_1$ must occupy lower session indices than sessions of
+specialty~$q_2$ whenever $q_1$ precedes $q_2$ in the ordering of $Q$.
+\textbf{SB2} breaks within-specialty symmetry by requiring the first patient in
+a lower-indexed session to have a strictly lower patient ID than the first
+patient in any higher-indexed session of the same specialty.
+Additionally, Step~3 is warm-started from the Step~2 solution via a
+within-specialty session-permutation that satisfies SB1 and SB2, injecting a
+high-quality incumbent before branching begins.
+Despite these measures, a 600-second time limit and a $5\%$ MIP-gap tolerance
+are applied in SAA replications to balance solution quality with run time.

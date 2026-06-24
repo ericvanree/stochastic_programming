@@ -1,0 +1,67 @@
+\section{Literature review}
+The contribution of this report is to formulate the problem as a stochastic programming model and to evaluate its performance using a finite scenario set generated through sample average approximation (SAA). In this chapter, we will identify an appropriate solution approach and introduce the sample average approximation approach. 
+
+\subsection{Solution approaches}
+\subsubsection{Advance and allocation steps}
+In literature, the advance and allocation steps can be solved using either sequential (SEQ) or integrated (INT) approaches \cite{Molina-Pariente2026}. Typically, the SEQ approach addresses the advance scheduling and allocation scheduling steps sequentially, whereas with the integrated approach, both advance and allocation steps are jointly addressed.
+
+\textbf{Sequential Approach:}
+Dai et al. propose a mathematical formulation to model surgery schedules under uncertainty of surgery duration in which patients are assigned to an operating room and place in the sequence of patients within the operation room \cite{DAI2025107098}.
+In \cite{Denton2006} the one operation room problem is formulated as a two-stage stochastic mixed-integer-program, where the first state decision variables include the sequence of operations and planned starting time and the second stage decision variables include the idletime, overtime and waitingtime.
+
+\textbf{Integrated Approach:}
+\cite{Moosavi2018216} propose an integrated approach in which another index for the pre-defined number of slots available within a block is included in the decision variable such that a patient is assigned a day, session, and timeslot within the session. \cite{Vali-Siar2018549} uses a binary variable for whether a patient (p) is scheduled in OR (o) with surgeon (s) at time (t) on day (d). 
+
+\subsubsection{Open (OS) and Block (BS) Scheduling}
+Traditionally, open (OS) and block (BS) scheduling policies are considered in the literature. Under the OS policy, any surgeon can perform surgeries in any OR-day available within the planning horizon, which complicates the problem. A variant of the OS policy, the BS policy, is therefore frequently used in reality. With the BS policy, a surgeon only performs surgeries in one OR block time. In this case, the determination of the start times is simplified compared with the OS policy as it allows OR-sessions to be scheduled separately. 
+
+To regard the advance and allocation steps, the sequential approach allows modelling the problem in a way that does not require pre-defining a total number of slots per session whhich is preferred given the problem at hand in which patient treatments durations differ significantly, such that it might require introducing dummy patients to fill all patient slots, depending on the model. In addition, the problem is dealt with as a block scheduling problem, in which blocks are separately sequenced to simplify the problem at hand. 
+
+\subsection{Sample average approximation}
+In the paper of Molina-Pariente et al. \cite{Molina-Pariente2026} an integrated operating room planning and scheduling problem under uncertainty is discussed. The model is formulated by denoting a set of days H (planning horizon) and a set J of ORs ($j=1,...,|J|)$ available on each day h in the planning horizon, denoting (j,h) as OR-day. To solve the problem, the sample average approximation (SAA) procedure, in which the problem is approximated as a discrete deterministic problem that integrates N samples, is proposed. \cite{Denton2006} also proposes SAA to solve the problem at hand. The SAA approach \cite{Kleywegt} follows the logic described in algorithm \ref{alg:saa} and is a good solution methodology for problems in which numerous different outcomes may occur, such that an exact solution becomes computationally intractable. 
+
+Stochastic programming is a good way to balance computational complexity and the solution quality by considering various scenarios all at once, as if it were deterministic. The disadvantage is that the solution quality solely depends on how well the used scenarios represent the potential outcomes. The SAA approach helps determine which minimum number of scenarios, and how to derive these scenarios, is then suitable to cover the outcome space appropriately whilst minimizing computational cost.  The SAA procedure provides a stepwise approach to determine an appropriate number of scenarios ($N$) that balance computational requirements and outcome quality. In the SAA design, a sampling method should be used for generating samples. Generally, random sampling is applied in SAA, but other examples are Latin hypercube, orthogonal, or importance sampling. In addition, an appropiate evaluation sample should be determined to evaluate the solution quality upon. The downside of the SAA approach is that it requires solving the model with $N$ scenarios $M$ times until a suitable $N$ is found. Selection of a proper $N$, $M$ and $N'$ to start with therefore also heavily affects how long the SAA approach takes to perform.
+
+
+
+For the surgery scheduling problem at hand, SAA is particularly appropriate
+for three reasons.
+First, surgery durations follow a continuous lognormal distribution, making the
+full stochastic program with its infinite scenario space computationally
+intractable; SAA converts it to a tractable finite MILP.
+Second, the scenario subproblems are independent — no second-stage constraints
+link scenarios to each other — so the deterministic equivalent scales linearly
+in the number of scenarios~$N$.
+Third, the block scheduling structure means OR sessions can be evaluated
+separately, keeping individual subproblem sizes manageable.
+The main disadvantage of SAA is that solution quality depends on how well the
+$N$ scenarios represent the true distribution: if tail events (long surgeries
+causing cascade overtime) are under-sampled, the policy may underestimate
+expected cost. This motivates evaluating multiple sampling strategies alongside
+random sampling and using a large out-of-sample evaluation set to validate
+quality independently of the training sample.
+
+\begin{algorithm}[H]
+\caption{Sample Average Approximation (SAA) Algorithm for Stochastic Discrete Optimization}
+\label{alg:saa}
+\begin{algorithmic}[1:]
+\Statex \textbf{Step 1:}
+\State Choose initial sample sizes $N$ (nr. of scenarios) and $N'$ (size of the evaluation sample), a decision rule for determining the number $M$ of SAA replications, a decision rule for increasing the sample sizes $N$ and $N'$ if needed, and tolerance $\varepsilon$.
+\Statex \textbf{Step 2:}
+\For{$m = 1, \dots, M$}
+    \State Generate a sample of size $N$ and solve the SAA problem with objective value $\hat{v}_N^m$ and $\varepsilon$-optimal solution $\hat{x}_N^m$.
+\State Estimate the optimality gap $g(\hat{x}_N^m) - v^*$ and the variance of the gap estimator.
+    \If{the optimality gap and the variance of the gap estimator are sufficiently small}
+        \State \textbf{go to Step 4}
+    \EndIf
+\EndFor
+\Statex \textbf{Step 3:}
+\If{the optimality gap or the variance of the gap estimator is too large}
+    \State Increase the sample sizes $N$ and/or $N'$.
+    \State Return to Step 2.
+\EndIf
+\Statex \textbf{Step 4:}
+\State Choose the best solution $\hat{x}$ among all candidate solutions $\hat{x}_N^m$ produced, using a screening and selection procedure.
+\State \textbf{Stop.}
+\end{algorithmic}
+\end{algorithm}

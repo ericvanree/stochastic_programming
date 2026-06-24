@@ -1,0 +1,222 @@
+\section{Step 5: Blueprint Planning via a Three-Stage Stochastic Program}
+
+OR scheduling problems decompose into three planning levels~\cite{samudra2016}:
+the Case Mix Problem (CMP) at the strategic level, the Master Surgery
+Scheduling Problem (MSSP) at the tactical level, and the Surgery Scheduling
+Problem (SSP) at the operational level.
+The Step~3 model addresses the SSP; this step adds a tactical MSSP-level
+first stage, yielding a three-stage stochastic program whose new first stage
+decides how many patients of each type to schedule per session before the
+waiting list is known, a blueprint.
+
+The scope of this step is a week consisting of three ORT sessions.
+Because all three sessions serve the same specialty, the specialty assignment
+variables $V_{hq}$ and mismatch penalty $D_{hq}$ from the Step~3 model are
+no longer needed and are dropped.
+Furthermore, since the problem scope is defined by exactly three ORT sessions,
+all sessions are always open:
+\begin{equation}
+  Z_h = 1 \qquad \forall\, h \in H.
+  \label{eq:allopen}
+\end{equation}
+
+\subsection{Patient Subgroup Definition}
+\label{sec:clustering}
+
+Because the blueprint must be constructed before the waiting list is revealed,
+we cannot decide on individual patient level.
+In addition, the patient mix consists of a large number of different surgery
+types that only sporadically occur in the waiting list.
+Therefore, patients are aggregated into higher-level subgroups $g \in G$ by
+clustering procedure types based on the empirical mean and standard deviation
+of surgery duration using $k$-means clustering in the $(\mu, \sigma)$ space.
+This data-driven approach extends the label-based three-group classification
+of Sheweita et al.~\cite{sheweita2021} by capturing scheduling risk ($\sigma$)
+alongside expected OR consumption ($\mu$).
+Three clusters are identified:
+\textbf{S~(Short)}: low mean, low variance;
+\textbf{M~(Medium)}: moderate mean and variance; and
+\textbf{L~(Long)}: high mean and/or variance,
+giving $G = \{\mathrm{S}, \mathrm{M}, \mathrm{L}\}$.
+Within each subgroup, durations are approximately exchangeable, justifying the
+subgroup count $N_{gh}$ as the relevant decision variable at Stage~1.
+
+\subsection{Three-Stage Structure and Scenario Tree}
+\label{sec:three_stage_structure}
+
+Uncertainty resolves in two phases.
+\textbf{Stage~1}~(MSSP): the blueprint $N_{gh}$ is fixed before any waiting
+list information is known.
+\textbf{Stage~2}~(SSP): the waiting list realisation $r \in R$ is revealed;
+patients are assigned, sequenced, and given appointment times using variables
+$X_{ijh}$, $Y_{ph}$, $A_p$, $Z_h$, $U_{ph}$, now indexed by~$r$.
+\textbf{Stage~3}~(realisation): surgery durations are observed and the
+schedule is evaluated using variables $S_{ps}$, $W_{ps}$, $I_{pp's}$,
+$O_{hs}$, now indexed by~$rs$.
+
+A node-oriented formulation is adopted, indexing variables by nodes in a
+scenario tree $\mathcal{T}$ with root $n_0$, waiting-list nodes $r \in R$
+with realised sets of patients, and leaf nodes $rs$ with patients and
+treatment durations.
+Non-anticipativity is enforced structurally: $N_{gh}$ is defined at $n_0$
+and is shared across all branches; Stage~2 variables are defined at node~$r$
+and are shared across all duration sub-branches $s \in S$; Stage~3 variables
+are $rs$-specific.
+No explicit non-anticipativity constraints are therefore needed.
+In a time-oriented formulation the same requirement would demand explicit
+equality constraints (i.e.\ restricting the first-stage blueprint to be
+consistent: $N_{ghr} = N_{ghr'}$ for all $r, r' \in R$), which the
+node-oriented formulation does not need.
+
+\subsection{Extended Model}
+\label{sec:extended_model}
+
+The Step~3 model is extended as follows.
+The set $r \in R$ indexes waiting-list realisations, analogously to how
+$s \in S$ indexes duration scenarios; in total the scenario tree contains
+$|R| \times |S|$ leaves.
+Each realisation $r$ defines a patient set $P_r$ with subgroup partition
+$P_{gr}$ for all $g \in G$.
+The probabilities $\pi_r$ and $\pi_{s|r}$ satisfy $\sum_{r} \pi_r = 1$ and
+$\sum_{s} \pi_{s|r} = 1$.
+The new Stage~1 variable is $N_{gh} \in \mathbb{Z}_{\geq 0}$, the number of
+patients of subgroup~$g$ that may be allocated to session~$h$ under the
+blueprint.
+
+\paragraph{Objective function.}
+Since all sessions are ORT, the specialty mismatch penalty is dropped.
+To prevent the blueprint from becoming vacuous — without a cost on $N_{gh}$
+the optimiser would set every quota to $\max_r |P_{gr}|$, imposing no
+planning structure — a penalty $\beta_5$ is added for each blueprint slot.
+This creates tension between blueprint specificity and operational flexibility:
+a tighter blueprint (small $N_{gh}$) reduces planning ambiguity but may
+constrain Stage~2 unnecessarily, while a looser blueprint provides more
+flexibility at a higher planning cost.
+The parameter $\beta_5$ was set to~$1$, ensuring the blueprint remains
+structured without trivially allocating all capacity; a sensitivity analysis
+on $\beta_5$ could further improve solution quality but is left for future work.
+
+\begin{align}
+  \min \; & \beta_5 \sum_{h \in H} \sum_{g \in G} N_{gh}
+    + \sum_{r \in R} \pi_r \sum_{s \in S} \pi_{s|r} \left(
+        \beta_1 \sum_{p} W_{prs} \right. \nonumber \\
+  & \left. \quad
+      + \; \beta_2 \sum_{\substack{p,p' \in P_r\\p \neq p'}} I_{pp'rs}
+      + \beta_3 \sum_{h} O_{hrs}
+    \right) \label{eq:three_stage_obj}
+\end{align}
+
+\paragraph{Blueprint linking constraint.}
+The blueprint links Stage~1 to Stage~2 by capping the number of patients of
+each subgroup per session:
+
+\begin{equation}
+  \sum_{p \in P_{gr}} Y_{phr} \leq N_{gh}
+  \qquad \forall\, g \in G,\; h \in H,\; r \in R
+  \label{eq:blueprint_link}
+\end{equation}
+
+\noindent The inequality (rather than equality) allows under-utilisation of
+blueprint capacity: when realization~$r$ contains fewer patients of subgroup~$g$
+than the quota, the constraint is non-binding, preserving feasibility.
+Conversely, when patients are abundant the constraint is active and restricts
+Stage~2 assignments to at most $N_{gh}$ patients per group per session.
+
+All remaining Step~3 constraints (excluding the specialty-related
+constraints~\eqref{eq:spec} and~\eqref{eq:viol}) carry forward as Stage~2
+constraints (indexed by~$r$) and Stage~3 constraints (indexed by~$rs$).
+The deterministic equivalent scales as
+$\mathcal{O}(|R| \cdot |P|^2 \cdot |H|)$ in binary variables and
+$\mathcal{O}(|R| \cdot |S| \cdot (|P|^2 + |H|))$ in continuous variables;
+tractability is maintained by applying SAA with moderate $|R|$ and~$|S|$.
+
+\paragraph{Session symmetry-breaking.}
+The three sessions are identical (equal opening and closing times, no
+session-specific data), so any permutation of the session indices yields an
+equivalent solution. To remove this $|H|!$ symmetry, which would otherwise
+inflate the branch-and-bound tree, the blueprint columns are ordered by a
+lexicographic capacity key that weights L above M above S:
+$100\,N_{\mathrm{L}h} + 10\,N_{\mathrm{M}h} + N_{\mathrm{S}h}$ is required to be
+non-increasing in~$h$. Because the sessions are genuinely exchangeable this cut
+preserves optimality while fixing a canonical labelling (session~$0$ carries the
+heaviest case mix).
+
+\subsection{Instance Design}
+\label{sec:bp_instance}
+
+Surgery types are clustered on the full ORT history
+(\texttt{ort\_patient\_data.csv}); the resulting three subgroups are summarised
+in Table~\ref{tab:bp_clusters}. The clustering is dominated by short procedures
+(50 of 68 types), with a small number of long, high-variance types forming the
+L~group. Each waiting-list realisation is generated by drawing three documented
+ORT sessions at random from \texttt{step\_5\_sample\_sessions.csv} and pooling
+their patients; we use $|R| = 3$ realisations with equal probability
+$\pi_r = 1/3$, and $|S| = 5$ duration scenarios per realisation drawn by
+importance sampling ($k = 1$). The blueprint penalty is set to $\beta_5 = 1$.
+The three sampled realisations contain $16$, $14$ and $14$ patients with
+subgroup compositions $(15\mathrm{S},1\mathrm{M},0\mathrm{L})$,
+$(12\mathrm{S},1\mathrm{M},1\mathrm{L})$ and
+$(12\mathrm{S},2\mathrm{M},0\mathrm{L})$, respectively.
+
+\begin{table}[h]
+  \centering
+  \caption{Surgery-type subgroups from $k$-means clustering on the ORT history.}
+  \label{tab:bp_clusters}
+  \begin{tabular}{lrrr}
+    \toprule
+    Subgroup & \#\,types & mean duration (min) & mean $\sigma$ (min) \\
+    \midrule
+    S (Short)  & 50 &  63.5 & 17.1 \\
+    M (Medium) & 15 & 126.3 & 29.6 \\
+    L (Long)   &  3 & 247.5 & 77.7 \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+\subsection{Blueprint Results and Managerial Insights}
+\label{sec:bp_results}
+
+The resulting blueprint is reported in Table~\ref{tab:bp_quota}. Two structural
+features stand out. First, the \emph{per-subgroup totals} (15~S, 2~M, 1~L) equal
+the largest subgroup count observed across the three realisations; with
+$\beta_5 = 1$ the model provisions exactly enough capacity to absorb the
+worst-case realisation of each subgroup and no more. This part of the solution
+is provably tight: the lower bound returned by the solver equals the slot cost,
+confirming that no smaller blueprint can remain feasible. Second, the single
+long case is isolated in one session while the medium cases are concentrated in
+another, leaving the remaining capacity for short, high-throughput procedures.
+
+\begin{table}[h]
+  \centering
+  \caption{Blueprint quota $N_{gh}$ (patients of subgroup $g$ allowed in session $h$).}
+  \label{tab:bp_quota}
+  \begin{tabular}{lrrrr}
+    \toprule
+    Subgroup & Session 0 & Session 1 & Session 2 & Total \\
+    \midrule
+    S (Short)  & 6 & 3 & 6 & 15 \\
+    M (Medium) & 0 & 2 & 0 & 2  \\
+    L (Long)   & 1 & 0 & 0 & 1  \\
+    \midrule
+    Total      & 7 & 5 & 6 & 18 \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+The managerial reading is that a robust weekly blueprint should reserve one
+session for the long, high-variance procedures and dedicate the others to a
+high volume of short cases, rather than spreading long cases evenly. Isolating
+the variance-driving cases limits how far a single overrun can cascade into
+downstream waiting and overtime, while the short-case sessions remain dense and
+predictable.
+
+\paragraph{Tractability.}
+As in Step~3, the embedded sequencing constraints carry large Big-$M$
+coefficients, and here this weakness is compounded by the three nested Stage-2
+scheduling problems. Within a $600$-second time limit the solver therefore
+returns a high-quality feasible blueprint with a sizeable residual optimality
+gap on the \emph{operational} cost component, while the blueprint capacities
+themselves are at the proven lower bound. Reducing $|S|$, using random rather
+than importance sampling for a more stable cost estimate, or strengthening the
+second-stage relaxation would tighten this gap; a full $\beta_5$ sensitivity
+analysis is left for future work.

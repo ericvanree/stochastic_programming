@@ -413,9 +413,24 @@ def build_model(
                             )
 
 
+    # Valid inequalities: arc (p,pp,h) can only exist if both endpoints are in h.
+    # These are implied by flow conservation but stating them explicitly tightens
+    # the LP relaxation, producing a stronger lower bound and faster branching.
+    for p in P:
+        for pp in P:
+            if p == pp:
+                continue
+            for h in H:
+                m.addConstr(X[p, pp, h] <= Y[p, h],  name=f"vi_out_{p}_{pp}_{h}")
+                m.addConstr(X[p, pp, h] <= Y[pp, h], name=f"vi_in_{p}_{pp}_{h}")
+    for p in P:
+        for h in H:
+            m.addConstr(X[0, p, h] <= Z[h], name=f"vi_depot_{p}_{h}")
+
     # Attach variable references for post-solve access
     m._A, m._X, m._Y, m._Z = A, X, Y, Z
     m._V, m._D = V, D
+    m._U = U
     m._S, m._W, m._I, m._O = Sv, W, Iv, Ov
 
     return m
@@ -795,7 +810,7 @@ if __name__ == "__main__":
         beta, t_start, t_close, c,
     )
     m3.setParam("TimeLimit", TIME_LIMIT_STEP3)
-    m3.setParam("MIPGap", 0.01)
+    m3.setParam("MIPGap", 0.05)      # 5 % gap — convergence tracks out-of-sample obj
     m3.setParam("Presolve", 2)       # aggressive presolve
     m3.setParam("Cuts", 2)           # more cutting planes at root
     m3.setParam("Heuristics", 0.3)   # spend more time on primal heuristics
@@ -867,6 +882,20 @@ if __name__ == "__main__":
         for h in H:
             for s in S:
                 m3._O[perm[h], s].Start = m2._O[h, s].X
+
+        # Recover MTZ position values from the X arcs of the Step 2 solution and
+        # inject them into Step 3's U variables (permuted to match the new session
+        # ordering).  Without this, Gurobi sees an incomplete MIP start that may
+        # be declared infeasible and discarded before the search even begins.
+        for h in H:
+            dest_h = perm[h]
+            cur, pos = 0, 1
+            for _ in range(len(P)):
+                nxt = next((p for p in P if p != cur and m2._X[cur, p, h].X > 0.5), None)
+                if nxt is None:
+                    break
+                m3._U[nxt, dest_h].Start = float(pos)
+                cur, pos = nxt, pos + 1
 
         m3.update()
         m3.setParam("MIPFocus", 1)
