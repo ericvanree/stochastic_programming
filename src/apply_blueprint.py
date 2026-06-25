@@ -19,7 +19,7 @@ Comparison instance
 The two-stage scheduling model uses three identical sessions, exactly like the
 blueprint's stage-2 structure.  We therefore build a dedicated comparison set by
 randomly sampling ``--n-sessions`` (default 3) documented ORT sessions from
-ort_patient_data.csv and writing them to input/sample_step5_comparison.csv.  The
+ort_patient_data.csv and writing them to input/sample_step5_comparison_s{seed}.csv.csv.  The
 same file is reused for the baseline and blueprint solves so they differ only in
 the blueprint restriction.
 
@@ -84,7 +84,7 @@ def build_comparison_set(seed: int, n_sessions: int, resample: bool) -> str:
     `resample` is set, so the baseline and blueprint solves share one instance and
     runs reproduce.
     """
-    out_path = os.path.join(_ROOT, "input", "sample_step5_comparison.csv")
+    out_path = os.path.join(_ROOT, "input", fr"sample_step5_comparison_s{seed}.csv")
     if os.path.exists(out_path) and not resample:
         print(f"[1] Reusing existing comparison set: {out_path}  (use --resample to redraw)")
         return out_path
