@@ -377,9 +377,13 @@ def build_model(
     )
 
     # ── Symmetry-breaking constraints (Step 3 only — session assignment is free) ──
-    # Guarded by fixed_Y is None: Steps 1 and 2 fix sessions via Y or X,
-    # so any session-ordering constraint would conflict with those fixed values.
-    if fixed_Y is None:
+    # Only valid when BOTH the sequence (X) and the assignment (Y) are free, i.e.
+    # Step 3.  In Step 1 the CSV fixes X (so fixed_X is set) and in Step 2 the CSV
+    # fixes Y (so fixed_Y is set); applying a session-ordering cut there would
+    # conflict with the fixed values and can render the model infeasible.  The
+    # guard must therefore check fixed_X as well — checking fixed_Y alone wrongly
+    # activates these cuts in Step 1 (fixed_X only), making it infeasible.
+    if fixed_X is None and fixed_Y is None:
         # (SB1) Specialty-block ordering: all sessions of specialty q1 must occupy
         # strictly lower indices than all sessions of q2 whenever q1 precedes q2
         # in SPECS.  Cut: V[h1,q1] + V[h2,q2] ≤ 1 for every h1 > h2 pair.
@@ -412,20 +416,6 @@ def build_model(
                                 name=f"sym_first_{q}_{h1}_{h2}_{p1}_{p2}",
                             )
 
-
-    # Valid inequalities: arc (p,pp,h) can only exist if both endpoints are in h.
-    # These are implied by flow conservation but stating them explicitly tightens
-    # the LP relaxation, producing a stronger lower bound and faster branching.
-    for p in P:
-        for pp in P:
-            if p == pp:
-                continue
-            for h in H:
-                m.addConstr(X[p, pp, h] <= Y[p, h],  name=f"vi_out_{p}_{pp}_{h}")
-                m.addConstr(X[p, pp, h] <= Y[pp, h], name=f"vi_in_{p}_{pp}_{h}")
-    for p in P:
-        for h in H:
-            m.addConstr(X[0, p, h] <= Z[h], name=f"vi_depot_{p}_{h}")
 
     # Attach variable references for post-solve access
     m._A, m._X, m._Y, m._Z = A, X, Y, Z
