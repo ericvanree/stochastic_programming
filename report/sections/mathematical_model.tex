@@ -428,9 +428,7 @@ treatments by evaluating the full model.
 
 \paragraph{Computational tractability.}
 The full model is a large-scale MILP whose LP relaxation is weakened by the
-Big-$M$ coefficient in the sequencing propagation constraint~\eqref{eq:seq},
-where $M = |P|(d_{\max} + c)$ becomes non-binding for fractional arc
-variables, inflating the search tree.
+Big-$M$ coefficients in equations~2, 5, 6, 11, 15, 23, 26 and 27.
 To reduce the solution space, two families of symmetry-breaking constraints are
 added when the session assignment is free (Step~3 only).
 \textbf{SB1} enforces a canonical specialty ordering across sessions: sessions

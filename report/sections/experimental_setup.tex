@@ -172,6 +172,23 @@ are tested by applying each method across Steps~1--4 and comparing out-of-sample
 confidence intervals.
 
 \paragraph{Experiments}
+
+\begin{table}[H]
+  \centering
+  \caption{Experimental settings of the base instance (waiting list~4).}
+  \label{tab:instance}
+  \begin{tabular}{lr}
+    \toprule
+    Setting & Value \\
+    \midrule
+    Patients    & 33 \\
+    Sessions    & 6  \\
+    Specialties & 3  \\
+    Scenarios   & 10 \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
 For Steps~1 and~2, we use the patient set from waiting list~4, which contains patients
 planned across 6 unique OR sessions, each with a known session identifier and
 within-session position label. This instance is used for both the timing-only model
