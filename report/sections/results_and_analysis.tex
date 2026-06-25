@@ -146,8 +146,7 @@ for wl4 and wl10 ($+34\%$, $+28\%$) but turns negative for wl7 ($-13\%$) and wl1
 explanation is computational. Within the $300$\,s limit neither instance is
 solved to optimality, but the single-scenario deterministic problem attains a
 smaller gap than the far larger stochastic one, so its EV policy can happen to
-evaluate better out of sample than the prematurely terminated SAA policy. This
-spurious effect is consistent with the two affected lists being exactly those
+evaluate better out of sample than the prematurely terminated SAA policy. This effect is consistent with the two affected lists being exactly those
 dominated by the specialty-mismatch term (Section~\ref{subsec:traineval}), whose
 MILPs are hardest to solve; solved to optimality, as in Steps 1 and 2, the VSS
 would be non-negative throughout.
@@ -159,10 +158,7 @@ scheduling. First, waiting time is consistently the dominant cost component
 (Section~\ref{subsec:traineval}); operationally, slack should be built in early
 in each session, as the optimiser is willing to accept some idle time to stop a
 single overrun from cascading into the waiting time of every downstream patient.
-Second, the specialty-mismatch penalty is incurred only when own-specialty
-capacity is insufficient: a forced mismatch is therefore a capacity-shortfall
-signal rather than a free scheduling choice, and blocks should be kept
-specialty-pure whenever a matching session is available. Third, the value of the
+Second, the value of the
 stochastic solution is positive wherever the model converges and largest when
 the patient-to-session assignment is free
 (Section~\ref{subsec:VSS}); modelling duration uncertainty pays off most at the
@@ -170,8 +166,5 @@ assignment level, and planning against mean durations systematically
 underperforms out of sample. Fourth, the large EVPI ($\approx$118,
 Section~\ref{subsec:EVPI}) indicates that most cost stems from duration
 uncertainty itself, so investing in better duration prediction or shorter
-scheduling lead times has high operational value. Finally, the persistent
-out-of-sample penalty relative to in-sample cost warns against over-tuning a
-schedule to a handful of scenarios; the chosen $N \approx 20$ LHS scenarios
-balance robustness against computational cost. These operational patterns are
+scheduling lead times has high operational value. These operational patterns are
 revisited alongside the tactical blueprint findings in the conclusion.
