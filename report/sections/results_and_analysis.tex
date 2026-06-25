@@ -30,9 +30,9 @@ With the results found in Section~\ref{subsec:SAAresults}, we select the number 
 
 For every waiting list the out-of-sample cost exceeds the in-sample cost. This gap is a direct consequence of overfitting: the first-stage schedule is optimised against the 20 training scenarios, so it fits the particular realisations seen during training more tightly than the independent evaluation scenarios.
 
-Focusing on the timing-related penalties, waiting is consistently the largest contributor, followed by idle time and then overtime. This ordering is stable across all four waiting lists and across both the in-sample and out-of-sample bars.
+Focusing on the timing-related penalties, waiting is consistently the largest contributor on the out-of-sample objective, followed by idle time and then overtime. This ordering is stable across all four waiting lists and across both the in-sample and out-of-sample bars.
 
-A stronger effect is visible for two of the four waiting lists (wl7 and wl13), where the specialty-mismatch penalty (D) dominates the objective. In these instances patients are assigned to a session whose specialisation differs from the patient's own specialisation. Such a mismatch incurs a large penalty, since it should be avoided whenever a matching session is available; the model only resorts to it when the available session capacity for the patient's own specialisation is insufficient to accommodate the waiting list.
+For wl7 and wl13 the specialty-mismatch penalty (D) dominates the objective. In these instances patients are assigned to a session whose specialisation differs from the patient's own specialisation. Such a mismatch incurs a large penalty, since it should be avoided whenever a matching session is available; the model only resorts to it when the available session capacity for the patient's own specialisation is insufficient to accommodate the waiting list.
 
 \subsection{Expected Value of Perfect Information}
 \label{subsec:EVPI}
@@ -51,17 +51,15 @@ is its sample mean,
 \]
 
 Using the policy trained on $S = 20$ scenarios, Table~\ref{tab:vpi} presents
-the per-scenario costs over $I = 10$ independent evaluation scenarios. In 7 out
+the per-scenario costs over $I = 10$ independent evaluation scenarios from wl4. In 7 out
 of 10 evaluation scenarios, $z_{\text{perf}}(i) = 0$, meaning that a
 penalty-free schedule exists when the surgery durations are known in advance.
 For these scenarios, the entire cost incurred by the policy is attributable to
 uncertainty, and $\text{VPI}(i) = z_{\text{policy}}(i)$. Only 3 scenarios
 ($i = 1$, $i = 4$ and $i = 8$) still require overtime under perfect
 information, suggesting that these particular realisations of surgery durations
-are inherently expensive to schedule regardless of the decision rule applied;
-even for these, the residual cost is small ($z_{\text{perf}}(4) = 0.065$)
-except where the realised durations are genuinely demanding. The estimated
-expected value of perfect information over the 10 evaluation scenarios is
+are inherently expensive to schedule regardless of the decision rule applied.
+The estimated expected value of perfect information over the 10 evaluation scenarios is
 $\widehat{\text{EVPI}} = 117.91$ (standard deviation $34.63$, $95\%$ confidence
 interval $[96.45, 139.37]$), indicating that on average a large share of the
 policy cost could in principle be eliminated by resolving duration uncertainty
