@@ -30,9 +30,9 @@ three sessions form one realization r.
 
 Usage
 -----
-python src/blueprint.py [--n-realizations 3] [--n-scenarios 5] [--seed 42]
-                        [--beta5 1.0] [--time-limit 300] [--mip-gap 0.05]
-                        [--method is] [--is-k 1.0]
+python src/blueprint.py --n-realizations 5 --n-scenarios 20 --seed 42
+                        --beta5 1.0 --time-limit 600
+                        --method lhs
 
 Outputs (in output/)
 --------------------
