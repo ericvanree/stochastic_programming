@@ -30,14 +30,18 @@ three sessions form one realization r.
 
 Usage
 -----
-python src/blueprint.py --n-realizations 5 --n-scenarios 20 --seed 42
+# One or several seeds (consistency study — quotas comparable because the S/M/L
+# clustering is fixed by --cluster-seed and only the sampling varies per seed):
+python src/blueprint.py --n-realizations 5 --n-scenarios 20 --seed 42 43 44
                         --beta5 1.0 --time-limit 600
                         --method lhs
 
 Outputs (in output/)
 --------------------
-  blueprint.csv          — N[g,h] quota table
-  blueprint_clusters.csv — surgery-type cluster centroids (S/M/L)
+  blueprint.csv            — N[g,h] quota table (last seed solved)
+  blueprint_clusters.csv   — surgery-type cluster centroids (S/M/L)
+  blueprint_solutions.csv  — cumulative: one row per run (input settings +
+                             solution + objective), keyed by settings incl. seed
 """
 
 from __future__ import annotations
@@ -409,52 +413,74 @@ def build_blueprint_model(
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# 4. MAIN
+# 4. SOLUTIONS CSV (cumulative, one row per run)
 # ─────────────────────────────────────────────────────────────────────────────
 
-def main():
-    parser = argparse.ArgumentParser(
-        description="Step 5: Three-stage stochastic blueprint for OR9 ORT scheduling."
+# The settings that identify a run; re-running the same settings overwrites the
+# old row (latest wins) instead of duplicating it.
+_SETTINGS_KEYS = ["seed", "n_realizations", "n_scenarios", "beta5", "method", "is_k"]
+
+# Full wide column order for blueprint_solutions.csv: settings, outcome, then the
+# flattened quota table N_<g>_<h>.
+_SOLUTION_COLS = (
+    _SETTINGS_KEYS
+    + ["time_limit", "cluster_seed", "status", "mip_gap_pct",
+       "objective", "slot_cost", "op_cost", "total_slots"]
+    + [f"N_{g}_{h}" for g in _G for h in _H]
+)
+
+
+def append_solutions_csv(path: str, rows: list[dict]) -> None:
+    """Append run rows to the cumulative solutions CSV, de-duplicating on settings.
+
+    Mirrors the upsert-into-one-file pattern used by main.py:write_objective_breakdown:
+    read the existing CSV (if any), concatenate, keep the latest row per settings
+    tuple, sort and rewrite.
+    """
+    df_new = pd.DataFrame(rows, columns=_SOLUTION_COLS)
+
+    if os.path.exists(path):
+        try:
+            df_old = pd.read_csv(path)
+            df_all = pd.concat([df_old, df_new], ignore_index=True)
+        except Exception as exc:
+            print(f"Could not read existing {path} ({exc}); starting fresh.")
+            df_all = df_new
+    else:
+        df_all = df_new
+
+    df_all = (
+        df_all
+        .drop_duplicates(subset=_SETTINGS_KEYS, keep="last")
+        .sort_values(_SETTINGS_KEYS)
+        .reset_index(drop=True)
     )
-    parser.add_argument("--n-realizations", type=int, default=3,
-                        help="Waiting-list realizations R (default 3)")
-    parser.add_argument("--n-scenarios",    type=int, default=5,
-                        help="Duration scenarios S per realization (default 5)")
-    parser.add_argument("--seed",           type=int, default=42)
-    parser.add_argument("--beta5",          type=float, default=1.0,
-                        help="Blueprint slot penalty beta5 (default 1.0)")
-    parser.add_argument("--time-limit",     type=int,   default=300)
-    parser.add_argument("--mip-gap",        type=float, default=0.05)
-    parser.add_argument("--method",         default="is",
-                        choices=["random", "lhs", "is"])
-    parser.add_argument("--is-k",           type=float, default=1.0)
-    parser.add_argument("--output-dir",     default=None)
-    args = parser.parse_args()
+    df_all.to_csv(path, index=False)
+    print(f"Solutions written to: {path}  ({len(df_all)} rows total)")
 
-    output_dir = args.output_dir or os.path.join(_ROOT, "output")
-    R = args.n_realizations
-    S = args.n_scenarios
 
-    print(f"\n=== Step 5 Blueprint  |  R={R} realizations  |  S={S} scenarios each ===")
-    print(f"beta5={args.beta5}  method={args.method}  is_k={args.is_k}  seed={args.seed}")
+# ─────────────────────────────────────────────────────────────────────────────
+# 5. SINGLE-SEED SOLVE
+# ─────────────────────────────────────────────────────────────────────────────
 
-    # ── 1. Cluster surgery types ──────────────────────────────────────────────
-    print("\n[1] Clustering ORT surgery types from ort_patient_data.csv ...")
-    type_to_group, centroids = cluster_surgery_types(k=3, random_state=args.seed)
-    print(f"  {len(type_to_group)} surgery types assigned to S/M/L clusters.")
-    print(centroids.to_string(index=False))
+def run_one_seed(seed: int, type_to_group: dict, args, output_dir: str) -> dict:
+    """Sample, build and solve the three-stage blueprint for one seed.
 
-    clust_path = os.path.join(output_dir, "blueprint_clusters.csv")
-    centroids.to_csv(clust_path, index=False)
-    print(f"  Written to: {clust_path}")
+    Clustering is done once by the caller (fixed across seeds) and passed in via
+    `type_to_group`, so only the realization/scenario sampling varies per seed and
+    the resulting quotas remain comparable.  Writes the per-run blueprint.csv quota
+    table and returns one flat result row for the cumulative solutions CSV.
+    """
+    R, S = args.n_realizations, args.n_scenarios
 
-    # ── 2. Sample waiting-list realizations ───────────────────────────────────
-    print(f"\n[2] Sampling {R} realizations (3 documented sessions each) ...")
+    print(f"\n{'=' * 70}")
+    print(f"  Seed {seed}  |  R={R} realizations  |  S={S} scenarios each  |  "
+          f"beta5={args.beta5}  method={args.method}  is_k={args.is_k}")
+    print(f"{'=' * 70}")
+
+    # ── Sample waiting-list realizations ──────────────────────────────────────
     realizations = sample_realizations(
-        n_realizations=R,
-        sessions_per_realization=3,
-        seed=args.seed,
-        or_filter=None,
+        n_realizations=R, sessions_per_realization=3, seed=seed, or_filter=None,
     )
     for r, df_r in enumerate(realizations):
         n_by_g = {
@@ -466,24 +492,19 @@ def main():
         }
         print(f"  r={r}: {len(df_r)} patients  {n_by_g}")
 
-    # ── 3. Generate duration scenarios per realization ────────────────────────
-    print(f"\n[3] Generating {S} duration scenarios per realization ...")
+    # ── Generate duration scenarios per realization ───────────────────────────
     scen_per_real = []
     for r, df_r in enumerate(realizations):
         d_r, S_r, pi_r = generate_scenarios(
             df_r, n_scenarios=S, method=args.method,
-            seed=args.seed + r * 1000, is_k=args.is_k,
+            seed=seed + r * 1000, is_k=args.is_k,
         )
         scen_per_real.append((d_r, S_r, pi_r))
-        pi_min = min(pi_r.values()); pi_max = max(pi_r.values())
-        print(f"  r={r}: {len(S_r)} scenarios, pi in [{pi_min:.4f}, {pi_max:.4f}]")
 
-    # ── 4. Build and solve the three-stage MILP ───────────────────────────────
-    n_leaves = R * S
-    print(f"\n[4] Building three-stage MILP ({R}x{S} = {n_leaves} leaves) ...")
+    # ── Build and solve the three-stage MILP ──────────────────────────────────
+    print(f"\n  Building three-stage MILP ({R}x{S} = {R * S} leaves) ...")
     m = build_blueprint_model(
-        realizations, scen_per_real, type_to_group,
-        beta5=args.beta5,
+        realizations, scen_per_real, type_to_group, beta5=args.beta5,
     )
     m.setParam("OutputFlag", 1)
     m.setParam("TimeLimit", args.time_limit)
@@ -493,37 +514,32 @@ def main():
     m.setParam("Heuristics", 0.3)
     m.optimize()
 
-    print(f"\nStatus: {m.Status}  |  Solutions found: {m.SolCount}")
+    print(f"\n  Status: {m.Status}  |  Solutions found: {m.SolCount}")
+
+    base = {k: getattr(args, k) for k in _SETTINGS_KEYS if k != "seed"}
+    base.update(seed=seed, time_limit=args.time_limit, cluster_seed=args.cluster_seed,
+                status=m.Status)
+
     if m.SolCount == 0:
-        print("No feasible solution found. Try reducing beta5 or the time limit.")
-        return
+        print("  No feasible solution found. Try reducing beta5 or the time limit.")
+        base.update(mip_gap_pct=float("nan"), objective=float("nan"),
+                    slot_cost=float("nan"), op_cost=float("nan"), total_slots=0)
+        for g in _G:
+            for h in _H:
+                base[f"N_{g}_{h}"] = ""
+        return base
 
-    gap = m.MIPGap * 100
-    print(f"Objective: {m.ObjVal:.4f}  |  MIP gap: {gap:.2f}%")
-
-    # ── 5. Extract and report blueprint ───────────────────────────────────────
     blueprint = {(g, h): round(m._N[g, h].X) for g in _G for h in _H}
-    slot_cost = args.beta5 * sum(blueprint.values())
-    op_cost   = m.ObjVal - slot_cost
+    total_slots = sum(blueprint.values())
+    slot_cost = args.beta5 * total_slots
+    op_cost = m.ObjVal - slot_cost
+    gap = m.MIPGap * 100
 
-    print("\n=== Blueprint  N[g, h] ===")
-    header = ["Subgroup"] + [f"Session {h}" for h in _H] + ["Row total"]
-    rows = []
-    for g in _G:
-        vals = [blueprint[g, h] for h in _H]
-        rows.append([g] + vals + [sum(vals)])
-    col_w = 12
-    print(" ".join(f"{c:<{col_w}}" for c in header))
-    print("-" * (col_w * len(header)))
-    for row in rows:
-        print(" ".join(f"{str(v):<{col_w}}" for v in row))
-    totals = ["Total"] + [sum(blueprint[g, h] for g in _G) for h in _H] + [sum(blueprint.values())]
-    print(" ".join(f"{str(v):<{col_w}}" for v in totals))
+    print(f"  Objective: {m.ObjVal:.4f}  |  MIP gap: {gap:.2f}%")
+    _print_blueprint_table(blueprint)
+    print(f"  beta5*slots = {slot_cost:.2f}  |  Expected op. cost = {op_cost:.4f}")
 
-    print(f"\nbeta5*slots = {slot_cost:.2f}  |  Expected op. cost = {op_cost:.4f}")
-    print(f"Total objective = {m.ObjVal:.4f}")
-
-    # ── 6. Write outputs ──────────────────────────────────────────────────────
+    # Per-run quota table (last seed solved is what apply_blueprint.py reads).
     out_path = os.path.join(output_dir, "blueprint.csv")
     with open(out_path, "w", newline="") as fh:
         w = csv.writer(fh)
@@ -531,7 +547,93 @@ def main():
         for g in _G:
             for h in _H:
                 w.writerow([g, h, blueprint[g, h]])
-    print(f"\nBlueprint written to: {out_path}")
+    print(f"  Blueprint quota table written to: {out_path}")
+
+    base.update(mip_gap_pct=gap, objective=m.ObjVal, slot_cost=slot_cost,
+                op_cost=op_cost, total_slots=total_slots)
+    for g in _G:
+        for h in _H:
+            base[f"N_{g}_{h}"] = blueprint[g, h]
+    return base
+
+
+def _print_blueprint_table(blueprint: dict) -> None:
+    """Pretty-print the N[g, h] quota table with row/column totals."""
+    print("\n  === Blueprint  N[g, h] ===")
+    header = ["Subgroup"] + [f"Session {h}" for h in _H] + ["Row total"]
+    col_w = 12
+    print("  " + " ".join(f"{c:<{col_w}}" for c in header))
+    print("  " + "-" * (col_w * len(header)))
+    for g in _G:
+        vals = [blueprint[g, h] for h in _H]
+        print("  " + " ".join(f"{str(v):<{col_w}}" for v in [g] + vals + [sum(vals)]))
+    totals = ["Total"] + [sum(blueprint[g, h] for g in _G) for h in _H] + [sum(blueprint.values())]
+    print("  " + " ".join(f"{str(v):<{col_w}}" for v in totals))
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 6. MAIN
+# ─────────────────────────────────────────────────────────────────────────────
+
+def main():
+    parser = argparse.ArgumentParser(
+        description="Step 5: Three-stage stochastic blueprint for OR9 ORT scheduling."
+    )
+    parser.add_argument("--n-realizations", type=int, default=3,
+                        help="Waiting-list realizations R (default 3)")
+    parser.add_argument("--n-scenarios",    type=int, default=5,
+                        help="Duration scenarios S per realization (default 5)")
+    parser.add_argument("--seed",           type=int, nargs="+", default=[42],
+                        help="One or more seeds; each solved and stored as a row "
+                             "(consistency study). Only sampling varies per seed.")
+    parser.add_argument("--cluster-seed",   type=int, default=42,
+                        help="Fixed seed for k-means S/M/L clustering, so quotas "
+                             "stay comparable across --seed values (default 42).")
+    parser.add_argument("--beta5",          type=float, default=1.0,
+                        help="Blueprint slot penalty beta5 (default 1.0)")
+    parser.add_argument("--time-limit",     type=int,   default=300)
+    parser.add_argument("--mip-gap",        type=float, default=0.05)
+    parser.add_argument("--method",         default="is",
+                        choices=["random", "lhs", "is"])
+    parser.add_argument("--is-k",           type=float, default=1.0)
+    parser.add_argument("--output-dir",     default=None)
+    args = parser.parse_args()
+
+    output_dir = args.output_dir or os.path.join(_ROOT, "output")
+    os.makedirs(output_dir, exist_ok=True)
+
+    # ── 1. Cluster surgery types ONCE (fixed across seeds) ────────────────────
+    print("\n[1] Clustering ORT surgery types from ort_patient_data.csv "
+          f"(cluster_seed={args.cluster_seed}) ...")
+    type_to_group, centroids = cluster_surgery_types(k=3, random_state=args.cluster_seed)
+    print(f"  {len(type_to_group)} surgery types assigned to S/M/L clusters.")
+    print(centroids.to_string(index=False))
+
+    clust_path = os.path.join(output_dir, "blueprint_clusters.csv")
+    centroids.to_csv(clust_path, index=False)
+    print(f"  Written to: {clust_path}")
+
+    # ── 2. Solve for each seed ────────────────────────────────────────────────
+    rows = [run_one_seed(seed, type_to_group, args, output_dir) for seed in args.seed]
+
+    append_solutions_csv(
+        os.path.join(output_dir, "blueprint_solutions.csv"), rows,
+    )
+
+    # ── 3. Consistency summary across seeds ───────────────────────────────────
+    if len(args.seed) > 1:
+        print(f"\n{'=' * 70}")
+        print("  Consistency summary across seeds")
+        print(f"{'=' * 70}")
+        hdr = f"  {'seed':>6}  {'status':>6}  {'obj':>10}  {'slots':>6}  " \
+              + "  ".join(f"N_{g}_{h}" for g in _G for h in _H)
+        print(hdr)
+        for r in rows:
+            quotas = "  ".join(f"{str(r[f'N_{g}_{h}']):>5}" for g in _G for h in _H)
+            obj = r["objective"]
+            obj_s = f"{obj:10.3f}" if isinstance(obj, float) and obj == obj else f"{'n/a':>10}"
+            print(f"  {r['seed']:>6}  {r['status']:>6}  {obj_s}  "
+                  f"{r['total_slots']:>6}  {quotas}")
 
 
 if __name__ == "__main__":

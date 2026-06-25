@@ -75,17 +75,22 @@ def _parse_pos(label: str) -> int:
     return int(re.search(r'P(\d+)', label).group(1))
 
 
-def load_data(wl: int):
+def load_data(wl: int | None = None, *, path: str | None = None):
     """
-    Load patient data for waiting-list *wl* (4 | 7 | 10 | 13).
+    Load patient data for waiting-list *wl* (4 | 7 | 10 | 13), or from an explicit
+    CSV *path* (used e.g. by apply_blueprint.py's comparison set).  Exactly one of
+    *wl* / *path* must be given.
 
     Returns
     -------
     df, P, H, P0, SPECS, q_pq, session_ids, session_sequences, patient_to_h
     """
-    root = os.path.join(os.path.dirname(__file__), "..")
-    data_file = os.path.join(root, "input", f"sample_wl{wl}.csv")
-    df = pd.read_csv(data_file)
+    if (wl is None) == (path is None):
+        raise ValueError("Provide exactly one of `wl` or `path`.")
+    if path is None:
+        root = os.path.join(os.path.dirname(__file__), "..")
+        path = os.path.join(root, "input", f"sample_wl{wl}.csv")
+    df = pd.read_csv(path)
 
     P = df["Patient ID"].tolist()
     session_ids = sorted(df["Session ID"].unique().tolist())
@@ -311,6 +316,7 @@ def solve_policy_chain(
     session_sequences, patient_to_h,
     target_step, d_train, S_train, pi_train,
     configure, name_prefix="policy", return_all=False,
+    step3_post_build=None,
 ):
     """
     Build and solve the model up to *target_step*, warm-starting each step from
@@ -330,6 +336,11 @@ def solve_policy_chain(
     dict holding every solved step from 1 up to *target_step*, so the whole
     warm-started chain can be inspected in one solve (mirrors main.py producing
     m1/m2/m3 together).
+
+    ``step3_post_build(m3)`` is an optional callback invoked on the step-3 model
+    after it is built and warm-started but before ``optimize()`` — used by
+    apply_blueprint.py to inject the blueprint subgroup-quota constraints on the
+    (now free) assignment variables ``m3._Y``.
     """
     models: dict[int, "gp.Model"] = {}
     fixed_X_s1 = _make_fixed_X(P0, H, session_sequences)
@@ -375,6 +386,8 @@ def solve_policy_chain(
     # _warm_start_s2_to_s3 calls m3.update() and sets MIPFocus=1 internally.
     if m2.SolCount > 0:
         _warm_start_s2_to_s3(m2, m3, P, P0, H, S_train, SPECS)
+    if step3_post_build is not None:
+        step3_post_build(m3)
     configure(m3, 3, with_mip_focus=False)  # MIPFocus already set by warm start
     m3.optimize()
     models[3] = m3
