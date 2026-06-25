@@ -58,3 +58,41 @@ uncertainty prior to scheduling.
         \bottomrule
     \end{tabular}
 \end{table}
+
+\subsection{Value of the Stochastic Solution}
+
+The Value of the Stochastic Solution (VSS) measures the benefit of explicitly
+accounting for duration uncertainty rather than planning against a single
+deterministic forecast. It is defined as
+\[
+    \text{VSS} = \text{EEV} - \text{RP},
+\]
+where RP (the \emph{recourse problem}) is the expected out-of-sample cost of the
+stochastic (SAA) policy, and EEV (the \emph{expected result of using the
+expected value solution}) is the expected out-of-sample cost of the
+deterministic policy.
+
+The estimation procedure consists of three steps.
+First, the \emph{expected value} (EV) policy is obtained by solving the MILP with
+a single scenario in which every surgery takes its expected duration; this yields
+a here-and-now schedule $(X^{\text{EV}}, Y^{\text{EV}}, A^{\text{EV}}, D^{\text{EV}})$.
+Second, the stochastic (SAA) policy is obtained by solving the MILP with $N$
+training scenarios drawn from the chosen sampling distribution, yielding
+$(X^{\text{SAA}}, Y^{\text{SAA}}, A^{\text{SAA}}, D^{\text{SAA}})$.
+Third, both fixed first-stage policies are evaluated on the \emph{same}
+independent out-of-sample set of $N'$ scenarios, generated with a seed distinct
+from those used to train either policy. Sharing a single evaluation set
+eliminates evaluation-sample noise from the difference, so that
+$\text{VSS} \geq 0$ holds up to solver optimality gaps rather than being
+polluted by two independent sample means. The two out-of-sample means are
+\[
+    \text{EEV} = \frac{1}{N'} \sum_{i=1}^{N'} z\!\left(\text{EV policy}, i\right),
+    \qquad
+    \text{RP} = \frac{1}{N'} \sum_{i=1}^{N'} z\!\left(\text{SAA policy}, i\right),
+\]
+where $z(\cdot, i)$ is the realised cost of a fixed first-stage policy under
+evaluation scenario $i$, computed by the recourse simulation. A large VSS
+indicates that incorporating uncertainty into the planning model yields a
+substantial cost reduction over the naive deterministic plan.
+
+% Results to be added.

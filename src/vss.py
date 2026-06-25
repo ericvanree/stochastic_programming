@@ -48,46 +48,30 @@ import numpy as np
 import pandas as pd
 
 from sampling import generate_scenarios
-from main import build_model
 from saa import (
     load_data,
     simulate_schedule,
-    _make_fixed_X,
-    _make_fixed_Y,
-    _T_START,
-    _T_CLOSE,
-    _C,
-    _BETA,
+    solve_policy_chain,
 )
 
 
-def _configure(m, step: int, time_limit: int, mip_gap: float):
-    """Apply solver parameters consistent with saa.py / main.py."""
-    m.setParam("OutputFlag", 0)
-    m.setParam("TimeLimit", time_limit)
-    if step == 3:
-        m.setParam("MIPGap", mip_gap)
-        m.setParam("Presolve", 2)
-        m.setParam("Cuts", 2)
-        m.setParam("Heuristics", 0.3)
+def _make_configure(time_limit: int, mip_gap: float):
+    """Build a per-step solver-configuration callback for solve_policy_chain.
 
-
-def _solve_model(
-    df, P, P0, H, SPECS, q_pq, session_sequences, patient_to_h,
-    step, d, S, pi, time_limit, mip_gap, name,
-):
-    """Build and solve the step-appropriate model for the given scenario set."""
-    fixed_X = _make_fixed_X(P0, H, session_sequences) if step == 1 else None
-    fixed_Y = _make_fixed_Y(P, H, patient_to_h)       if step in (1, 2) else None
-
-    m = build_model(
-        name, P, P0, H, S, d, pi,
-        SPECS, q_pq, _BETA, _T_START, _T_CLOSE, _C,
-        fixed_X=fixed_X, fixed_Y=fixed_Y,
-    )
-    _configure(m, step, time_limit, mip_gap)
-    m.optimize()
-    return m
+    Mirrors the parameters used in saa.py / main.py so that the policy produced
+    here is constructed identically (step 1 → 2 → 3, each warm-started).
+    """
+    def configure(m, step: int, with_mip_focus: bool = False):
+        m.setParam("OutputFlag", 0)
+        m.setParam("TimeLimit", time_limit)
+        if with_mip_focus:
+            m.setParam("MIPFocus", 1)
+        if step == 3:
+            m.setParam("MIPGap", mip_gap)
+            m.setParam("Presolve", 2)
+            m.setParam("Cuts", 2)
+            m.setParam("Heuristics", 0.3)
+    return configure
 
 
 def _eval_policy(m, d_eval, S_eval, pi_eval, P, H, SPECS) -> float:
@@ -137,14 +121,17 @@ def main():
         seed=args.seed + 99999, is_k=args.is_k
     )
 
-    # 3. EV policy: solve with a single expected-duration scenario
+    configure = _make_configure(args.time_limit, args.mip_gap)
+
+    # 3. EV policy: solve with a single expected-duration scenario.
+    #    Built via the same step 1→2→3 warm-start chain as main.py.
     print("\nSolving EV model (expected-duration scenario)...")
     d_ev, S_ev, pi_ev = generate_scenarios(df, n_scenarios=1, method="expected",
                                            seed=args.seed, is_k=args.is_k)
-    m_ev = _solve_model(
-        df, P, P0, H, SPECS, q_pq, session_sequences, patient_to_h,
+    m_ev = solve_policy_chain(
+        P, P0, H, SPECS, q_pq, session_sequences, patient_to_h,
         args.step, d_ev, S_ev, pi_ev,
-        args.time_limit, args.mip_gap, name=f"EV_step{args.step}",
+        configure, name_prefix=f"EV_step{args.step}",
     )
     if m_ev.SolCount == 0:
         print("ERROR: EV model returned no feasible solution. Aborting.")
@@ -159,10 +146,10 @@ def main():
     d_tr, S_tr, pi_tr = generate_scenarios(
         df, n_scenarios=args.n_train, method=args.method, seed=args.seed, is_k=args.is_k
     )
-    m_saa = _solve_model(
-        df, P, P0, H, SPECS, q_pq, session_sequences, patient_to_h,
+    m_saa = solve_policy_chain(
+        P, P0, H, SPECS, q_pq, session_sequences, patient_to_h,
         args.step, d_tr, S_tr, pi_tr,
-        args.time_limit, args.mip_gap, name=f"SAA_step{args.step}",
+        configure, name_prefix=f"SAA_step{args.step}",
     )
     if m_saa.SolCount == 0:
         print("ERROR: SAA model returned no feasible solution. Aborting.")
