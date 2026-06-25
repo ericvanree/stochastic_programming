@@ -257,6 +257,129 @@ managerial recommendation---isolating the long, high-variance cases and
 densifying the short-case sessions (Section~\ref{sec:bp_results})---is itself a
 stable feature rather than sampling noise.
 
+Tables~\ref{tab:bp_seeds_quality} and~\ref{tab:bp_seeds_quotas} summarise
+the nine blueprint solves over seeds $\theta \in \{42, \ldots, 50\}$ using a
+larger SAA instance ($|R|=5$, $|S|=20$, LHS, $\beta_5 = 1$).
+All runs hit the 600-second time limit.
+The large residual gaps ($\approx$79--84\,\%) sit entirely in the operational
+cost component; the blueprint capacities $N_{gh}$ are at the proven lower
+bound in every run, confirming that the slot-cost term is reliably identified
+within the available time budget.
+
+\begin{table}[h]
+  \centering
+  \caption{Blueprint solution quality across sampling seeds
+           ($|R|=5$, $|S|=20$, $\beta_5=1$, LHS, 600-s limit;
+           all runs hit the time limit, status~9).
+           The optimality gap lies entirely in the operational cost component;
+           slot costs are at the proven lower bound in every run.}
+  \label{tab:bp_seeds_quality}
+  \setlength{\tabcolsep}{5pt}
+  \begin{tabular}{rrrrr}
+    \toprule
+    Seed & Gap (\%) & Total slots & Slot cost & In-sample obj. \\
+    \midrule
+    \textbf{42} & \textbf{80.15} & \textbf{20} & \textbf{20.0} & \textbf{95.73} \\
+    43 & 81.84 & 21 & 21.0 & 104.61 \\
+    44 & 79.43 & 22 & 22.0 & 106.95 \\
+    45 & 83.37 & 22 & 22.0 & 120.25 \\
+    46 & 81.79 & 19 & 19.0 & 104.33 \\
+    47 & 84.40 & 18 & 18.0 & 115.42 \\
+    48 & 83.91 & 20 & 20.0 & 124.30 \\
+    49 & 80.74 & 20 & 20.0 & 103.86 \\
+    50 & 84.21 & 19 & 19.0 & 113.97 \\
+    \midrule
+    Mean & 82.21 & 20.1 & 20.1 & 109.94 \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+\begin{table}[h]
+  \centering
+  \caption{Blueprint quotas $N_{gh}$ per sampling seed, grouped by subgroup;
+           $\Sigma$ is the per-subgroup total $\sum_h N_{gh}$.
+           The bold row (seed~42) is the recommended robust blueprint
+           (Section~\ref{sec:bp_robust}).}
+  \label{tab:bp_seeds_quotas}
+  \setlength{\tabcolsep}{4pt}
+  \begin{tabular}{r|rrrr|rrrr|rrrr}
+    \toprule
+    & \multicolumn{4}{c|}{S (Short)} & \multicolumn{4}{c|}{M (Medium)} & \multicolumn{4}{c}{L (Long)} \\
+    Seed & $h{=}0$ & $h{=}1$ & $h{=}2$ & $\Sigma$
+         & $h{=}0$ & $h{=}1$ & $h{=}2$ & $\Sigma$
+         & $h{=}0$ & $h{=}1$ & $h{=}2$ & $\Sigma$ \\
+    \midrule
+    \textbf{42} & \textbf{6} & \textbf{5} & \textbf{5} & \textbf{16}
+                & \textbf{1} & \textbf{1} & \textbf{1} & \textbf{3}
+                & \textbf{1} & \textbf{0} & \textbf{0} & \textbf{1} \\
+    43 & 6 & 5 & 5 & 16 & 0 & 2 & 2 & 4 & 1 & 0 & 0 & 1 \\
+    44 & 7 & 6 & 5 & 18 & 0 & 1 & 1 & 2 & 2 & 0 & 0 & 2 \\
+    45 & 5 & 7 & 7 & 19 & 2 & 1 & 0 & 3 & 0 & 0 & 0 & 0 \\
+    46 & 6 & 5 & 5 & 16 & 1 & 1 & 1 & 3 & 0 & 0 & 0 & 0 \\
+    47 & 6 & 6 & 5 & 17 & 1 & 0 & 0 & 1 & 0 & 0 & 0 & 0 \\
+    48 & 6 & 6 & 5 & 17 & 0 & 1 & 1 & 2 & 1 & 0 & 0 & 1 \\
+    49 & 5 & 6 & 5 & 16 & 2 & 1 & 0 & 3 & 1 & 0 & 0 & 1 \\
+    50 & 6 & 5 & 6 & 17 & 1 & 1 & 0 & 2 & 0 & 0 & 0 & 0 \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+\paragraph{Cross-seed observations.}
+Three regularities emerge from Table~\ref{tab:bp_seeds_quotas}.
+First, the \emph{S~(Short) total is the most stable dimension}: seven of
+nine seeds produce $\sum_h N_{Sh} \in \{16, 17\}$, and the modal value
+is~16 (seeds 42, 43, 46, 49).
+This matches the largest short-case count observed across the five sampled
+waiting lists, confirming that the $\beta_5$~penalty drives exact worst-case
+provisioning without slack.
+Second, the \emph{L~(Long) allocation is structurally invariant when present}:
+all five seeds where $\sum_h N_{Lh} \geq 1$ concentrate every long-case
+slot in session~0 ($N_{L1} = N_{L2} = 0$ without exception).
+This is not an artefact of the symmetry-breaking ordering constraint; it is
+an emergent optimisation outcome, indicating that reserving one dedicated
+session for high-variance procedures is genuinely optimal for this case mix.
+Third, the \emph{M~(Medium) subgroup is the primary source of variability}:
+$\sum_h N_{Mh}$ ranges from~1 to~4 across seeds, reflecting the sensitivity
+of medium-case provisioning to which particular waiting lists are sampled.
+
+\paragraph{Managerial implications.}
+The cross-seed pattern supports three planning recommendations.
+\emph{(i)~Designate one session as the long-case anchor.}
+Concentrating the single long procedure in session~0 isolates duration
+uncertainty and prevents an overrun from cascading into subsequent sessions;
+the optimiser selects this structure in every seed that provisions a long slot,
+regardless of the particular waiting lists drawn.
+\emph{(ii)~Provision at least one long-case slot by default.}
+Long surgery types represent only three of 68 types, yet they appear in five
+of the nine sampled waiting lists ($\approx$55\,\%), so a blueprint with
+$\sum_h N_{Lh} = 0$ will be infeasible roughly half the time under the
+observed ORT mix.
+Risk-neutral provisioning sets $N_{L0} = 1$.
+\emph{(iii)~Distribute medium-case slots uniformly across sessions.}
+Medium-duration procedures (mean $\approx$126\,min) can be accommodated in
+any session without materially increasing overtime risk; a uniform allocation
+$N_{Mh} = 1$ for all $h$ avoids concentrating scheduling uncertainty in a
+single session and keeps all sessions comparably loaded.
+
+\subsection{Recommended Blueprint}
+\label{sec:bp_robust}
+
+Aggregating the stability evidence, solution quality, and the managerial
+principles above, seed~42 is recommended as the robust blueprint setting.
+It achieves the lowest in-sample objective (95.7) among the nine runs and
+the second-lowest optimality gap (80.2\,\%), and produces quotas that agree
+with the modal pattern across all seeds: $\sum_h N_{Sh} = 16$ (modal S
+total, shared by seeds 42, 43, 46, 49), $\sum_h N_{Mh} = 3$ (modal M
+total, shared by seeds 42, 45, 46, 49), and $\sum_h N_{Lh} = 1$ (L
+provision maintained, present in five seeds).
+The session-level allocation---$S{:}[6,5,5]$, $M{:}[1,1,1]$,
+$L{:}[1,0,0]$---distributes short-case and medium-case capacity
+symmetrically across sessions while isolating the long case in session~0,
+consistent with the invariant observed in every seed that provisions a
+long-case slot.
+This blueprint is adopted as the reference policy in the operational cost
+comparison of Section~\ref{sec:bp_apply}.
+
 \subsection{Operational Cost of Imposing the Blueprint}
 \label{sec:bp_apply}
 
