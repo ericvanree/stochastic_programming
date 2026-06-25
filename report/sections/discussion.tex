@@ -13,16 +13,14 @@ only be bounded to within the residual gap rather than measured exactly
 tree and an untuned penalty $\beta_5 = 1$, so the recommended quotas reflect the
 sampled waiting lists rather than a calibrated risk preference, and its scope is a
 single specialty (ORT). Finally, durations are sampled independently per patient,
-ignoring day-level correlation, and the worst-case-tight provisioning leaves no
-headroom---as the infeasible comparison seed shows.
+ignoring possible day-level correlation.
 
 \paragraph{Further research.}
-A sensitivity sweep over $\beta_5$ would expose the full trade-off between
+A sensitivity analysis over $\beta_5$ would expose the full trade-off between
 blueprint tightness and operational flexibility. Tightening the
-formulation---logic-based or indicator constraints in place of Big-$M$, valid
-inequalities, or a Benders decomposition exploiting the scenario-separable second
-stage---would close the gap and turn the blueprint comparison into an exact
+formulation (logic-based or indicator constraints in place of Big-$M$), valid
+inequalities would close the gap and turn the blueprint comparison into an exact
 measurement. Larger and correlated scenario models, a small safety margin on the
 dominant subgroup, and an extension to a multi-specialty, multi-week horizon with
-a risk-averse objective (e.g.\ CVaR on overtime) would bring the model closer to
+a risk-averse objective would bring the model closer to
 tactical master-schedule practice.

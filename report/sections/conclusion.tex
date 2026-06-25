@@ -3,29 +3,21 @@
 
 This report formulated operating-theatre planning as a stochastic program solved
 through sample average approximation, progressing from operational scheduling
-(Steps~1--3: timing, sequencing, and full assignment) through its statistical
-validation (Step~4: SAA convergence, EVPI, and VSS) to a tactical three-stage
+(Steps~1--3: timing, sequencing, and full assignment) and evaluation
+of these models (Step~4: SAA convergence, EVPI, and VSS) to a tactical three-stage
 blueprint that fixes a per-session case-mix template before the waiting list is
 known (Step~5).
 
-At the \emph{operational} level
+At the operational level
 (Section~\ref{subsec:operational_insights}), waiting time dominates cost, so good
 schedules build in early slack and trade a little idle time to prevent overrun
-cascades; specialty mismatches arise only under a capacity shortfall, so blocks
-should be kept specialty-pure; and the positive VSS with a large EVPI shows that
-explicitly modelling duration uncertainty---rather than planning against mean
-durations---drives the gains, most of all at the assignment level. At the
-\emph{tactical} level (Section~\ref{sec:bp_results}), the blueprint is robust
-across seeds: dedicate one session as an anchor for the long, high-variance
-procedures, densify the others with short, predictable cases, provision at least
-one long-case slot, and spread medium cases uniformly. Imposing this template
-proved operationally close to free---cost differences sit within solver
-gaps---provided the quotas carry a small safety margin, since worst-case-tight
-provisioning can become infeasible when realised demand exceeds the sampled worst
-case.
+cascades; specialty mismatches arise only under a capacity shortage, and the positive VSS with a large EVPI shows that
+explicitly modelling duration uncertainty, rather than planning against mean
+durations, yields better performing schedules. At the
+tactical level (Section~\ref{sec:bp_results}), the blueprint can offer a robust interpretable solution
+across different realizations but does constrain the operational planning such that ultimately it will negatively affect the schedule quality. 
+Imposing the template did on the evaluated test instances however yield relatively good performance.
+However, as the blueprint is more tight, the operational schedule is more restricted by the blueprint such that feasibility of scheduling all patients is no longer guaranteed.
 
-The two levels are complementary: the blueprint structures \emph{which} cases
-meet \emph{which} session, while the operational model absorbs the residual
-duration uncertainty within each session. The principal barrier to sharper
-conclusions is the optimality gap left by the Big-$M$ formulation; closing it
-(Section~\ref{sec:discussion}) is the most valuable next step.
+The two levels are complementary: the blueprint structures which cases may
+meet which session, while the operational model schedules optimally within these restrictions.
