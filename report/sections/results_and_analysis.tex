@@ -11,7 +11,7 @@ For each of the 3 sampling methods, we ran step 1 to 3 with several numbers of s
     \label{fig:saa_convergence_step3}
 \end{figure}
 
-Looking at the three sampling methods, we can conlude that Latin Hyprcube Samplign performs the best of the three, likely becasue of that it samples for the equiprobable intervals, such that it gives a good representation of the evaluation set. LHS is follow by random sampling. Importance sampling perfroms significantly worse than the other 2 sampling techniques, likely because the high number of extreme scenarios that are weighted in the training run, but not present in the evaluation run.
+Looking at the three sampling methods, we can conlude that Latin Hyprcube Samplign performs the best of the three, with the lowest solution cost value and lowest variance, likely becasue of that it samples for the equiprobable intervals, such that it gives a good representation of the evaluation set. LHS is follow by random sampling, with a slightly higher solution value and more training scenarios needed to reduce the variance. Importance sampling performs significantly worse than the other 2 sampling techniques, both in terms of mean solution value and variance, likely because the high number of extreme scenarios that are weighted in the training run, but not present in the evaluation run.
 
 \subsection{Training and evaluation resutls}
 \label{subsec:traineval}
