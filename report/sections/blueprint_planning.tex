@@ -22,10 +22,10 @@ reference individual patients; moreover the mix spans many surgery types that
 each occur only sporadically. Patients are therefore aggregated into subgroups
 $g \in G$ by $k$-means clustering of procedure types in the $(\mu, \sigma)$ space
 of duration mean and standard deviation. This extends the label-based grouping
-of Sheweita et al.~\cite{sheweita2021} by capturing scheduling risk ($\sigma$)
-alongside expected OR consumption ($\mu$). Three clusters result---\textbf{S}
+of~\cite{sheweita2021} by capturing scheduling risk ($\sigma$)
+alongside expected OR consumption ($\mu$). Three clusters result, \textbf{S}
 (short, low $\mu$/$\sigma$), \textbf{M} (medium), and \textbf{L} (long, high
-$\mu$ and/or $\sigma$)---giving $G = \{\mathrm{S}, \mathrm{M}, \mathrm{L}\}$.
+$\mu$ and/or $\sigma$), giving $G = \{\mathrm{S}, \mathrm{M}, \mathrm{L}\}$.
 Within a subgroup durations are approximately exchangeable, justifying the
 subgroup count $N_{gh}$ as the Stage-1 decision.
 
@@ -38,8 +38,8 @@ $U_{ph}$, indexed by $r$). \textbf{Stage~3} observes surgery durations and
 evaluates the schedule ($S_{ps}$, $W_{ps}$, $I_{pp's}$, $O_{hs}$, indexed by
 $rs$). A node-oriented formulation indexes variables by the nodes of a scenario
 tree with root $n_0$, waiting-list nodes $r$, and leaves $rs$; non-anticipativity
-is then structural---$N_{gh}$ lives at $n_0$, Stage-2 variables at $r$, Stage-3
-variables at $rs$---so no explicit non-anticipativity constraints are needed.
+is then structural, $N_{gh}$ lives at $n_0$, Stage-2 variables at $r$, Stage-3
+variables at $rs$, so no explicit non-anticipativity constraints are needed.
 
 \subsection{Extended Model}
 \label{sec:extended_model}
