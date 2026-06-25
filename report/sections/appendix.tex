@@ -39,3 +39,22 @@ Figures~\ref{fig:hist_average_realized_error} and~\ref{fig:hist_planned_duration
     \caption{Histogram of the prediction error when using the planned duration.}
     \label{fig:hist_planned_duration_error}
 \end{figure}
+
+\section{Objective Breakdowns for Steps 1 and 2}
+\label{app:objective_breakdowns}
+
+This appendix provides the in-sample and out-of-sample objective breakdowns for Step 1 (timing only) and Step 2 (sequencing and timing), complementing the Step 3 breakdown discussed in Section~\ref{subsec:traineval}. Figures~\ref{fig:objective_breakdown_step1} and~\ref{fig:objective_breakdown_step2} show the same components and layout as Figure~\ref{fig:objective_breakdown_step3}: for each waiting list the left bar is the in-sample (training) cost and the right bar the out-of-sample (evaluation) cost, stacked by objective component.
+
+\begin{figure}[h]
+    \centering
+    \includegraphics[width=1\linewidth]{Figures/objective_breakdown_step1.png}
+    \caption{Objective breakdown for Step 1 (timing only) on four waiting lists.}
+    \label{fig:objective_breakdown_step1}
+\end{figure}
+
+\begin{figure}[h]
+    \centering
+    \includegraphics[width=1\linewidth]{Figures/objective_breakdown_step2.png}
+    \caption{Objective breakdown for Step 2 (sequencing and timing) on four waiting lists.}
+    \label{fig:objective_breakdown_step2}
+\end{figure}

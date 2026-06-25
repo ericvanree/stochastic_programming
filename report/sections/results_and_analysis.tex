@@ -9,7 +9,22 @@ figure
 Looking at the three sampling methods, we can conlude that Latin Hyprcube Samplign performs the best of the three, likely becasue of that it samples for the equiprobable intervals, such that it gives a good representation of the evaluation set. LHS is follow by random sampling. Importance sampling perfroms significantly worse than the other 2 sampling techniques, likely because the high number of extreme scenarios that are weighted in the training run, but not present in the evaluation run.
 
 \subsection{Training and evaluation resutls}
-With the results found in Section~\ref{subsec:SAAresults}, we select the number of training scenarios to be 20 and lhs as sampling technique to compare the training solution values and evaluation values for 4 different waiting lists. This comparison is depicted in figure~
+\label{subsec:traineval}
+With the results found in Section~\ref{subsec:SAAresults}, we select the number of training scenarios to be 20 and lhs as sampling technique to compare the training solution values and evaluation values for 4 different waiting lists. The comparison for the full MILP (Step 3) is depicted in Figure~\ref{fig:objective_breakdown_step3}; the corresponding breakdowns for Step 1 (timing only) and Step 2 (sequencing and timing) are reported in Appendix~\ref{app:objective_breakdowns}.
+
+\begin{figure}[h]
+    \centering
+    \includegraphics[width=1\linewidth]{Figures/objective_breakdown_step3.png}
+    \caption{Objective breakdown for the full MILP (Step 3) on four waiting lists}
+    \label{fig:objective_breakdown_step3}
+\end{figure}
+
+For every waiting list the out-of-sample cost exceeds the in-sample cost. This gap is a direct consequence of overfitting: the first-stage schedule is optimised against the 20 training scenarios, so it fits the particular realisations seen during training more tightly than the independent evaluation scenarios.
+
+Focusing on the timing-related penalties, waiting is consistently the largest contributor, followed by idle time and then overtime. This ordering is stable across all four waiting lists and across both the in-sample and out-of-sample bars.
+
+A stronger effect is visible for two of the four waiting lists (wl7 and wl13), where the specialty-mismatch penalty (D) dominates the objective. In these instances patients are assigned to a session whose specialisation differs from the patient's own specialisation. Such a mismatch incurs a large penalty, since it should be avoided whenever a matching session is available; the model only resorts to it when the available session capacity for the patient's own specialisation is insufficient to accommodate the waiting list.
+
 \subsection{Expected Value of Perfect Information}
 
 The Expected Value of Perfect Information (EVPI) quantifies the expected gain from knowing
@@ -33,38 +48,45 @@ and the EVPI is estimated as the sample mean over the $I$ evaluation scenarios:
     \widehat{\text{EVPI}} = \frac{1}{I} \sum_{i=1}^{I} \text{VPI}(i).
 \]
 
-Table~\ref{tab:vpi} presents the per-scenario costs for 10 training scenarios
-and 10 evaluation scenarios. In 8 out of 10 evaluation scenarios,
-$z_{\text{perf}}(i) = 0$, meaning that a penalty-free schedule exists when
-the surgery durations are known in advance. For these scenarios, the entire
-cost incurred by the policy is attributable to uncertainty, and
-$\text{VPI}(i) = z_{\text{policy}}(i)$. Only 2 scenarios (i = 1 and i = 4)
-require penalties even under perfect information, suggesting that these
-particular realisations of surgery durations are inherently infeasible to
-schedule without cost regardless of the decision rule applied. The estimated
+Using the policy trained on $S = 20$ scenarios, Table~\ref{tab:vpi} presents
+the per-scenario costs over $I = 10$ independent evaluation scenarios. In 7 out
+of 10 evaluation scenarios, $z_{\text{perf}}(i) = 0$, meaning that a
+penalty-free schedule exists when the surgery durations are known in advance.
+For these scenarios, the entire cost incurred by the policy is attributable to
+uncertainty, and $\text{VPI}(i) = z_{\text{policy}}(i)$. Only 3 scenarios
+($i = 1$, $i = 4$ and $i = 8$) still require overtime under perfect
+information, suggesting that these particular realisations of surgery durations
+are inherently expensive to schedule regardless of the decision rule applied;
+even for these, the residual cost is small ($z_{\text{perf}}(4) = 0.065$)
+except where the realised durations are genuinely demanding. The estimated
 expected value of perfect information over the 10 evaluation scenarios is
-$\widehat{\text{EVPI}} = 158.05$, indicating that on average a large share of
-the policy cost could in principle be eliminated by resolving duration
-uncertainty prior to scheduling.
+$\widehat{\text{EVPI}} = 117.91$ (standard deviation $34.63$, $95\%$ confidence
+interval $[96.45, 139.37]$), indicating that on average a large share of the
+policy cost could in principle be eliminated by resolving duration uncertainty
+prior to scheduling.
 
 \begin{table}[h]
     \centering
-    \caption{Per-scenario costs and Value of Perfect Information (VPI).}
+    \caption{Per-scenario costs and Value of Perfect Information (VPI) for the
+    policy trained on $S = 20$ scenarios, evaluated on $I = 10$ independent
+    scenarios.}
     \label{tab:vpi}
     \begin{tabular}{rrrr}
         \toprule
         $i$ & $z_{\text{policy}}(i)$ & $z_{\text{perf}}(i)$ & $\text{VPI}(i)$ \\
         \midrule
-         1 & 225.146 & 16.048 & 209.098 \\
-         2 & 119.461 &  0.000 & 119.461 \\
-         3 & 119.849 &  0.000 & 119.849 \\
-         4 & 177.055 &  2.742 & 174.313 \\
-         5 & 153.461 &  0.000 & 153.461 \\
-         6 & 128.878 &  0.000 & 128.878 \\
-         7 & 140.100 &  0.000 & 140.100 \\
-         8 & 186.231 &  0.000 & 186.231 \\
-         9 & 174.386 &  0.000 & 174.386 \\
-        10 & 174.679 &  0.000 & 174.679 \\
+         1 & 186.529 & 151.117 &  35.412 \\
+         2 & 134.386 &   0.000 & 134.386 \\
+         3 & 130.375 &   0.000 & 130.375 \\
+         4 & 140.337 &   0.065 & 140.271 \\
+         5 & 132.956 &   0.000 & 132.956 \\
+         6 & 108.662 &   0.000 & 108.662 \\
+         7 & 138.838 &   0.000 & 138.838 \\
+         8 & 161.386 &  81.091 &  80.295 \\
+         9 & 137.074 &   0.000 & 137.074 \\
+        10 & 140.855 &   0.000 & 140.855 \\
+        \midrule
+        \multicolumn{3}{r}{$\widehat{\text{EVPI}}$} & 117.913 \\
         \bottomrule
     \end{tabular}
 \end{table}
