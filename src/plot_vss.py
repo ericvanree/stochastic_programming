@@ -71,9 +71,10 @@ def plot_vss_results(csv_path: str, output_dir: str) -> None:
 
         fig, ax = plt.subplots(figsize=(max(6, 1.6 * len(wls) + 3), 5))
         b_eev = ax.bar(x - bar_w / 2, df_s["eev"], bar_w,
-                       color=_EEV_COLOR, label="EEV — deterministic (EV)")
+                       color=_EEV_COLOR,
+                       label="Deterministic with expected durations")
         b_rp = ax.bar(x + bar_w / 2, df_s["rp"], bar_w,
-                      color=_RP_COLOR, label="RP — stochastic (SAA)")
+                      color=_RP_COLOR, label="Stochastic programming")
         ax.bar_label(b_eev, fmt="%.0f", padding=2, fontsize=8)
         ax.bar_label(b_rp, fmt="%.0f", padding=2, fontsize=8)
 
@@ -90,7 +91,7 @@ def plot_vss_results(csv_path: str, output_dir: str) -> None:
         ax.set_ylabel("Out-of-sample objective")
         ax.set_ylim(0, top * 1.18)
         ax.set_title(f"VSS — Step {step} ({_STEP_LABELS.get(step, step)})\n"
-                     f"EEV vs RP out-of-sample; gap = VSS")
+                     f"out-of-sample cost; gap = VSS")
         # Legend outside the axes so it never overlaps bars or VSS annotations.
         ax.legend(loc="upper left", bbox_to_anchor=(1.01, 1.0), frameon=False)
         ax.grid(axis="y", color="lightgray", linewidth=0.6)
