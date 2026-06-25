@@ -19,15 +19,26 @@ solver optimality gaps rather than being polluted by two independent sample mean
 A large VSS means that explicitly accounting for uncertainty (the stochastic
 solution) pays off substantially over the naive deterministic plan.
 
+Both policies are built with the SAME step 1 → 2 → 3 warm-start chain as main.py
+(each step seeded from the previous), and the EEV/RP out-of-sample objectives are
+stored for *every* step, for *every* waiting list, in one cumulative CSV — the
+same upsert-into-one-file pattern main.py uses for objective_breakdown.csv.
+
 Usage
 -----
-python src/vss.py --step 3 --wl 4 [--n-train 10] [--n-prime 1000] [--seed 42]
-                  [--method random] [--time-limit 600] [--mip-gap 0.05]
+# Default: all waiting lists (4, 7, 10, 13), all three steps, n_train=20:
+python src/vss.py
+
+# Restrict to particular waiting lists / change the stochastic sample size:
+python src/vss.py --n-train 20 --method lhs --n-prime 10000 --seed 42
 
 Outputs (in output/)
 --------------------
-  vss_wl{wl}_step{step}.csv
-      columns: ev_obj, saa_obj, eev, rp, vss
+  vss_results.csv  — cumulative, keyed by (workload, step); re-running a
+                     workload replaces its rows (latest run wins).
+      columns: workload, step, ev_obj, saa_obj, ev_gap, saa_gap,
+               eev, rp, vss, vss_pct, n_train, method, seed, is_k, n_prime,
+               time_step1, time_step2, time_step3, mip_gap
         ev_obj  -- in-sample objective of the EV MILP (single scenario)
         saa_obj -- in-sample objective of the SAA MILP (n_train scenarios)
         eev     -- mean out-of-sample cost of the EV policy
@@ -38,13 +49,11 @@ Outputs (in output/)
 from __future__ import annotations
 
 import argparse
-import csv
 import os
 import sys
 
 sys.path.insert(0, os.path.dirname(__file__))
 
-import numpy as np
 import pandas as pd
 
 from sampling import generate_scenarios
@@ -54,16 +63,29 @@ from saa import (
     solve_policy_chain,
 )
 
+# Steps solved/evaluated together (1 → 2 → 3, each warm-started from the last).
+_STEPS = (1, 2, 3)
 
-def _make_configure(time_limit: int, mip_gap: float):
+# Column order for the cumulative VSS results CSV.
+_VSS_COLS = [
+    "workload", "step",
+    "ev_obj", "saa_obj", "ev_gap", "saa_gap",
+    "eev", "rp", "vss", "vss_pct",
+    "n_train", "method", "seed", "is_k", "n_prime",
+    "time_step1", "time_step2", "time_step3", "mip_gap",
+]
+
+
+def _make_configure(time_limits: dict, mip_gap: float):
     """Build a per-step solver-configuration callback for solve_policy_chain.
 
     Mirrors the parameters used in saa.py / main.py so that the policy produced
-    here is constructed identically (step 1 → 2 → 3, each warm-started).
+    here is constructed identically (step 1 → 2 → 3, each warm-started), with
+    main.py's per-step time limits.
     """
     def configure(m, step: int, with_mip_focus: bool = False):
         m.setParam("OutputFlag", 0)
-        m.setParam("TimeLimit", time_limit)
+        m.setParam("TimeLimit", time_limits[step])
         if with_mip_focus:
             m.setParam("MIPFocus", 1)
         if step == 3:
@@ -77,7 +99,7 @@ def _make_configure(time_limit: int, mip_gap: float):
 def _eval_policy(m, d_eval, S_eval, pi_eval, P, H, SPECS) -> float:
     """Evaluate a fixed first-stage policy on a shared out-of-sample eval set."""
     if m.SolCount == 0:
-        raise RuntimeError("Model has no feasible solution; cannot evaluate policy.")
+        return float("nan")
     return simulate_schedule(
         {k: m._X[k].X for k in m._X},
         {k: m._Y[k].X for k in m._Y},
@@ -87,95 +109,180 @@ def _eval_policy(m, d_eval, S_eval, pi_eval, P, H, SPECS) -> float:
     )
 
 
+def write_vss_results(output_dir: str, new_rows: list) -> str:
+    """Append/overwrite rows in the cumulative VSS results CSV.
+
+    Rows are keyed by ``(workload, step)``; re-running a workload replaces its
+    existing rows (latest run wins) while leaving other workloads untouched —
+    the same pattern main.py uses for objective_breakdown.csv.  Returns the path.
+    """
+    path = os.path.join(output_dir, "vss_results.csv")
+    df_new = pd.DataFrame(new_rows, columns=_VSS_COLS)
+
+    if os.path.exists(path):
+        try:
+            df_old = pd.read_csv(path)
+            df_all = pd.concat([df_old, df_new], ignore_index=True)
+        except Exception as exc:
+            print(f"Could not read existing {path} ({exc}); starting fresh.")
+            df_all = df_new
+    else:
+        df_all = df_new
+
+    df_all = (
+        df_all
+        .drop_duplicates(subset=["workload", "step"], keep="last")
+        .sort_values(["workload", "step"])
+        .reset_index(drop=True)
+    )
+    df_all.to_csv(path, index=False)
+    print(f"\nVSS results written to: {path}  ({len(df_all)} rows total)")
+    return path
+
+
+def run_vss_for_wl(wl, args, time_limits, configure):
+    """Solve EV + SAA policy chains for one waiting list and return result rows.
+
+    Both policies are built once via the warm-started step 1→2→3 chain
+    (``return_all=True`` yields all three step models), then evaluated on the
+    shared out-of-sample set for every step.
+    """
+    print(f"\n{'=' * 65}")
+    print(f"  VSS  |  WL {wl}  |  steps {', '.join(map(str, _STEPS))}")
+    print(f"{'=' * 65}")
+
+    # 1. Load patient data
+    (df, P, H, P0, SPECS, q_pq,
+     session_ids, session_sequences, patient_to_h) = load_data(wl)
+    print(f"Patients: {len(P)}, Sessions: {len(H)}, Specialties: {SPECS}")
+
+    # 2. Shared out-of-sample evaluation set.  The seed is offset from the
+    #    training seed (EV uses no randomness; SAA trains on `seed`) so the
+    #    evaluation draw is independent of both policies' training draws.
+    d_eval, S_eval, pi_eval = generate_scenarios(
+        df, n_scenarios=args.n_prime, method="random",
+        seed=args.seed + 99999, is_k=args.is_k,
+    )
+
+    # 3. EV policy: single expected-duration scenario, full warm-start chain.
+    print("\nSolving EV chain (deterministic, single expected-duration scenario)...")
+    d_ev, S_ev, pi_ev = generate_scenarios(
+        df, n_scenarios=1, method="expected", seed=args.seed, is_k=args.is_k,
+    )
+    ev_models = solve_policy_chain(
+        P, P0, H, SPECS, q_pq, session_sequences, patient_to_h,
+        3, d_ev, S_ev, pi_ev,
+        configure, name_prefix=f"EV_wl{wl}", return_all=True,
+    )
+
+    # 4. SAA policy: n_train scenarios from the chosen method, full warm-start chain.
+    print(f"Solving SAA chain (stochastic, n_train={args.n_train}, "
+          f"method={args.method})...")
+    d_tr, S_tr, pi_tr = generate_scenarios(
+        df, n_scenarios=args.n_train, method=args.method,
+        seed=args.seed, is_k=args.is_k,
+    )
+    saa_models = solve_policy_chain(
+        P, P0, H, SPECS, q_pq, session_sequences, patient_to_h,
+        3, d_tr, S_tr, pi_tr,
+        configure, name_prefix=f"SAA_wl{wl}", return_all=True,
+    )
+
+    # 5. Evaluate EEV / RP out-of-sample for every step on the shared eval set.
+    rows = []
+    for step in _STEPS:
+        m_ev, m_saa = ev_models[step], saa_models[step]
+
+        ev_obj  = m_ev.ObjVal  if m_ev.SolCount  > 0 else float("nan")
+        saa_obj = m_saa.ObjVal if m_saa.SolCount > 0 else float("nan")
+        ev_gap  = m_ev.MIPGap  if m_ev.SolCount  > 0 else float("nan")
+        saa_gap = m_saa.MIPGap if m_saa.SolCount > 0 else float("nan")
+
+        eev = _eval_policy(m_ev,  d_eval, S_eval, pi_eval, P, H, SPECS)
+        rp  = _eval_policy(m_saa, d_eval, S_eval, pi_eval, P, H, SPECS)
+        vss = eev - rp
+        vss_pct = (vss / eev * 100.0) if eev else float("nan")
+
+        print(f"  Step {step}: EEV={eev:8.3f}  RP={rp:8.3f}  "
+              f"VSS={vss:8.3f}  ({vss_pct:5.1f}% of EEV)"
+              + ("   [NOTE: VSS<0 → solver gaps]" if vss < 0 else ""))
+
+        rows.append({
+            "workload":   wl,
+            "step":       step,
+            "ev_obj":     ev_obj,
+            "saa_obj":    saa_obj,
+            "ev_gap":     ev_gap,
+            "saa_gap":    saa_gap,
+            "eev":        eev,
+            "rp":         rp,
+            "vss":        vss,
+            "vss_pct":    vss_pct,
+            "n_train":    args.n_train,
+            "method":     args.method,
+            "seed":       args.seed,
+            "is_k":       args.is_k,
+            "n_prime":    args.n_prime,
+            "time_step1": time_limits[1],
+            "time_step2": time_limits[2],
+            "time_step3": time_limits[3],
+            "mip_gap":    args.mip_gap,
+        })
+
+    return rows
+
+
 def main():
-    parser = argparse.ArgumentParser(description="Compute VSS for a given step/workload.")
-    parser.add_argument("--step",       type=int, required=True, choices=[1, 2, 3])
-    parser.add_argument("--wl",         type=int, required=True, choices=[4, 7, 10, 13])
-    parser.add_argument("--n-train",    type=int, default=10,
-                        help="SAA training sample size (default 10)")
-    parser.add_argument("--n-prime",    type=int, default=1000,
-                        help="Out-of-sample evaluation set size (default 1000)")
-    parser.add_argument("--method",     default="random", choices=["random", "lhs", "is"],
-                        help="Sampling method for the SAA training set (default random)")
-    parser.add_argument("--seed",       type=int,   default=42)
-    parser.add_argument("--is-k",       type=float, default=1.0)
-    parser.add_argument("--time-limit", type=int,   default=600)
-    parser.add_argument("--mip-gap",    type=float, default=0.05)
+    parser = argparse.ArgumentParser(
+        description="Compute VSS (EEV, RP) out-of-sample for all steps and "
+                    "waiting lists, storing results in one cumulative CSV.",
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+    )
+    parser.add_argument("--wl", type=int, nargs="+", default=[4, 7, 10, 13],
+                        choices=[4, 7, 10, 13],
+                        help="Waiting list(s) to run (default: all four)")
+    parser.add_argument("--n-train", type=int, default=20,
+                        help="SAA (stochastic) training sample size")
+    parser.add_argument("--n-prime", type=int, default=10_000,
+                        help="Out-of-sample evaluation set size")
+    parser.add_argument("--method", default="lhs", choices=["random", "lhs", "is"],
+                        help="Sampling method for the SAA training set")
+    parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument("--is-k", type=float, default=0.5)
+    parser.add_argument("--time-step1", type=int, default=60,
+                        help="Gurobi time limit (s) for step 1")
+    parser.add_argument("--time-step2", type=int, default=60,
+                        help="Gurobi time limit (s) for step 2")
+    parser.add_argument("--time-step3", type=int, default=300,
+                        help="Gurobi time limit (s) for step 3")
+    parser.add_argument("--mip-gap", type=float, default=0.05,
+                        help="MIP gap for step 3 (matches main.py)")
     parser.add_argument("--output-dir", default=None)
     args = parser.parse_args()
 
     root = os.path.join(os.path.dirname(__file__), "..")
     output_dir = args.output_dir or os.path.join(root, "output")
+    os.makedirs(output_dir, exist_ok=True)
 
-    print(f"\n=== VSS  |  Step {args.step}  |  WL {args.wl} ===")
+    time_limits = {1: args.time_step1, 2: args.time_step2, 3: args.time_step3}
+    configure = _make_configure(time_limits, args.mip_gap)
 
-    # 1. Load patient data
-    (df, P, H, P0, SPECS, q_pq,
-     session_ids, session_sequences, patient_to_h) = load_data(args.wl)
-    print(f"Patients: {len(P)}, Sessions: {len(H)}, Specialties: {SPECS}")
+    all_rows = []
+    for wl in args.wl:
+        all_rows.extend(
+            run_vss_for_wl(wl, args, time_limits, configure)
+        )
+        # Persist after each waiting list so partial progress survives a crash.
+        write_vss_results(output_dir, all_rows)
 
-    # 2. Shared out-of-sample evaluation set (seed independent of both policies'
-    #    training seeds: EV uses no randomness; SAA trains on `seed`).
-    d_eval, S_eval, pi_eval = generate_scenarios(
-        df, n_scenarios=args.n_prime, method="random",
-        seed=args.seed + 99999, is_k=args.is_k
-    )
-
-    configure = _make_configure(args.time_limit, args.mip_gap)
-
-    # 3. EV policy: solve with a single expected-duration scenario.
-    #    Built via the same step 1→2→3 warm-start chain as main.py.
-    print("\nSolving EV model (expected-duration scenario)...")
-    d_ev, S_ev, pi_ev = generate_scenarios(df, n_scenarios=1, method="expected",
-                                           seed=args.seed, is_k=args.is_k)
-    m_ev = solve_policy_chain(
-        P, P0, H, SPECS, q_pq, session_sequences, patient_to_h,
-        args.step, d_ev, S_ev, pi_ev,
-        configure, name_prefix=f"EV_step{args.step}",
-    )
-    if m_ev.SolCount == 0:
-        print("ERROR: EV model returned no feasible solution. Aborting.")
-        sys.exit(1)
-    ev_obj = m_ev.ObjVal
-    eev = _eval_policy(m_ev, d_eval, S_eval, pi_eval, P, H, SPECS)
-    print(f"  EV in-sample obj : {ev_obj:.4f}  (gap {m_ev.MIPGap*100:.1f}%)")
-    print(f"  EEV (out-of-sample): {eev:.4f}")
-
-    # 4. SAA policy: solve with n_train scenarios from the chosen method
-    print(f"\nSolving SAA model (n_train={args.n_train}, method={args.method})...")
-    d_tr, S_tr, pi_tr = generate_scenarios(
-        df, n_scenarios=args.n_train, method=args.method, seed=args.seed, is_k=args.is_k
-    )
-    m_saa = solve_policy_chain(
-        P, P0, H, SPECS, q_pq, session_sequences, patient_to_h,
-        args.step, d_tr, S_tr, pi_tr,
-        configure, name_prefix=f"SAA_step{args.step}",
-    )
-    if m_saa.SolCount == 0:
-        print("ERROR: SAA model returned no feasible solution. Aborting.")
-        sys.exit(1)
-    saa_obj = m_saa.ObjVal
-    rp = _eval_policy(m_saa, d_eval, S_eval, pi_eval, P, H, SPECS)
-    print(f"  SAA in-sample obj : {saa_obj:.4f}  (gap {m_saa.MIPGap*100:.1f}%)")
-    print(f"  RP (out-of-sample): {rp:.4f}")
-
-    # 5. VSS
-    vss = eev - rp
-    print(f"\n--- Results (shared eval set, N'={args.n_prime}) ---")
-    print(f"  EEV = {eev:.4f}")
-    print(f"  RP  = {rp:.4f}")
-    print(f"  VSS = {vss:.4f}  ({vss/eev*100:.1f}% of EEV)")
-    if vss < 0:
-        print("  NOTE: VSS < 0 - attributable to solver optimality gaps "
-              "(SAA/EV not solved to optimum).")
-
-    # 6. Write output CSV
-    out_path = os.path.join(output_dir, f"vss_wl{args.wl}_step{args.step}.csv")
-    with open(out_path, "w", newline="") as fh:
-        w = csv.writer(fh)
-        w.writerow(["ev_obj", "saa_obj", "eev", "rp", "vss"])
-        w.writerow([ev_obj, saa_obj, eev, rp, vss])
-    print(f"\nResults written to: {out_path}")
+    # ── Final summary ─────────────────────────────────────────────────────────
+    print(f"\n{'=' * 65}")
+    print(f"  VSS summary (shared eval set, N'={args.n_prime})")
+    print(f"{'=' * 65}")
+    print(f"  {'WL':>3}  {'step':>4}  {'EEV':>10}  {'RP':>10}  {'VSS':>10}  {'VSS%':>6}")
+    for r in all_rows:
+        print(f"  {r['workload']:>3}  {r['step']:>4}  {r['eev']:10.3f}  "
+              f"{r['rp']:10.3f}  {r['vss']:10.3f}  {r['vss_pct']:5.1f}%")
 
 
 if __name__ == "__main__":

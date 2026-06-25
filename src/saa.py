@@ -310,7 +310,7 @@ def solve_policy_chain(
     P, P0, H, SPECS, q_pq,
     session_sequences, patient_to_h,
     target_step, d_train, S_train, pi_train,
-    configure, name_prefix="policy",
+    configure, name_prefix="policy", return_all=False,
 ):
     """
     Build and solve the model up to *target_step*, warm-starting each step from
@@ -325,7 +325,13 @@ def solve_policy_chain(
 
     `configure(m, step, with_mip_focus=False)` is a caller-supplied callback that
     applies solver parameters (output flag, time limit, MIP gap, …) per step.
+
+    When ``return_all=True`` the function instead returns a ``{step: model}``
+    dict holding every solved step from 1 up to *target_step*, so the whole
+    warm-started chain can be inspected in one solve (mirrors main.py producing
+    m1/m2/m3 together).
     """
+    models: dict[int, "gp.Model"] = {}
     fixed_X_s1 = _make_fixed_X(P0, H, session_sequences)
     fixed_Y    = _make_fixed_Y(P, H, patient_to_h)
 
@@ -337,8 +343,9 @@ def solve_policy_chain(
     )
     configure(m1, 1)
     m1.optimize()
+    models[1] = m1
     if target_step == 1:
-        return m1
+        return models if return_all else m1
 
     # ── Step 2: Y fixed, warm start from Step 1 ──────────────────────────────
     m2 = build_model(
@@ -356,8 +363,9 @@ def solve_policy_chain(
         m2.update()
     configure(m2, 2, with_mip_focus=warm_s2)
     m2.optimize()
+    models[2] = m2
     if target_step == 2:
-        return m2
+        return models if return_all else m2
 
     # ── Step 3: all free, warm start from Step 2 (with permutation) ───────────
     m3 = build_model(
@@ -369,7 +377,8 @@ def solve_policy_chain(
         _warm_start_s2_to_s3(m2, m3, P, P0, H, S_train, SPECS)
     configure(m3, 3, with_mip_focus=False)  # MIPFocus already set by warm start
     m3.optimize()
-    return m3
+    models[3] = m3
+    return models if return_all else m3
 
 
 # ─────────────────────────────────────────────────────────────────────────────
