@@ -428,10 +428,10 @@ treatments by evaluating the full model.
 
 \paragraph{Computational tractability.}
 The full model is a large-scale MILP whose LP relaxation is weakened by the
-Big-$M$ coefficients in equations~2, 5, 6, 11, 15, 23, 26 and 27.
+Big-$M$ coefficients in equations~2, 5, 6, 11, 15, 23, 26 and 27. This makes it difficult for a solver to find a lower bound, which leaves the optimality gap wide.
 To reduce the solution space, two families of symmetry-breaking constraints are
 added when the session assignment is free (Step~3 only).
-\textbf{SB1} enforces a canonical specialty ordering across sessions: sessions
+\textbf{SB1} enforces a specialty ordering across sessions: sessions
 of specialty~$q_1$ must occupy lower session indices than sessions of
 specialty~$q_2$ whenever $q_1$ precedes $q_2$ in the ordering of $Q$.
 \textbf{SB2} breaks within-specialty symmetry by requiring the first patient in
@@ -440,5 +440,5 @@ patient in any higher-indexed session of the same specialty.
 Additionally, Step~3 is warm-started from the Step~2 solution via a
 within-specialty session-permutation that satisfies SB1 and SB2, injecting a
 high-quality incumbent before branching begins.
-Despite these measures, a 600-second time limit and a $5\%$ MIP-gap tolerance
-are applied in SAA replications to balance solution quality with run time.
+Despite these measures, with the setting of step 3, the model does not solve to optimality in resonable time (within an hour), therefor, a 300-second time limit 
+is applied to balance solution quality with run time.
