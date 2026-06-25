@@ -18,50 +18,21 @@ Traditionally, open (OS) and block (BS) scheduling policies are considered in th
 To regard the advance and allocation steps, the sequential approach allows modelling the problem in a way that does not require pre-defining a total number of slots per session whhich is preferred given the problem at hand in which patient treatments durations differ significantly, such that it might require introducing dummy patients to fill all patient slots, depending on the model. In addition, the problem is dealt with as a block scheduling problem, in which blocks are separately sequenced to simplify the problem at hand. 
 
 \subsection{Sample average approximation}
-In the paper of Molina-Pariente et al. \cite{Molina-Pariente2026} an integrated operating room planning and scheduling problem under uncertainty is discussed. The model is formulated by denoting a set of days H (planning horizon) and a set J of ORs ($j=1,...,|J|)$ available on each day h in the planning horizon, denoting (j,h) as OR-day. To solve the problem, the sample average approximation (SAA) procedure, in which the problem is approximated as a discrete deterministic problem that integrates N samples, is proposed. \cite{Denton2006} also proposes SAA to solve the problem at hand. The SAA approach \cite{Kleywegt} follows the logic described in algorithm \ref{alg:saa} and is a good solution methodology for problems in which numerous different outcomes may occur, such that an exact solution becomes computationally intractable. 
+In the paper of Molina-Pariente et al. \cite{Molina-Pariente2026} an integrated operating room planning and scheduling problem under uncertainty is discussed. The model is formulated by denoting a set of days H (planning horizon) and a set J of ORs ($j=1,...,|J|)$ available on each day h in the planning horizon, denoting (j,h) as OR-day. To solve the problem, the sample average approximation (SAA) procedure, in which the problem is approximated as a discrete deterministic problem that integrates N samples, is proposed. \cite{Denton2006} also proposes SAA to solve the problem at hand. The SAA approach \cite{Kleywegt} follows the logic described in Algorithm~\ref{alg:saa} (Appendix~\ref{app:saa_alg}) and is a good solution methodology for problems in which numerous different outcomes may occur, such that an exact solution becomes computationally intractable.
 
-Stochastic programming is a good way to balance computational complexity and the solution quality by considering various scenarios all at once, as if it were deterministic. The disadvantage is that the solution quality solely depends on how well the used scenarios represent the potential outcomes. The SAA approach helps determine which minimum number of scenarios, and how to derive these scenarios, is then suitable to cover the outcome space appropriately whilst minimizing computational cost.  The SAA procedure provides a stepwise approach to determine an appropriate number of scenarios ($N$) that balance computational requirements and outcome quality. In the SAA design, a sampling method should be used for generating samples. Generally, random sampling is applied in SAA, but other examples are Latin hypercube, orthogonal, or importance sampling. In addition, an appropiate evaluation sample should be determined to evaluate the solution quality upon. The downside of the SAA approach is that it requires solving the model with $N$ scenarios $M$ times until a suitable $N$ is found. Selection of a proper $N$, $M$ and $N'$ to start with therefore also heavily affects how long the SAA approach takes to perform.
+Stochastic programming balances tractability and solution quality by considering
+many scenarios at once, as if deterministic, at the cost that quality depends on
+how well those scenarios represent the true outcomes. The SAA procedure
+determines a suitable number of scenarios~$N$ under a chosen sampling method
+(random, Latin hypercube, orthogonal, or importance sampling) and an evaluation
+sample~$N'$, by repeatedly solving with $N$ scenarios $M$ times; the choice of
+$N$, $M$, and $N'$ therefore governs both quality and run time.
 
-
-
-For the surgery scheduling problem at hand, SAA is particularly appropriate
-for three reasons.
-First, surgery durations follow a continuous lognormal distribution, making the
-full stochastic program with its infinite scenario space computationally
-intractable; SAA converts it to a tractable finite MILP.
-Second, the scenario subproblems are independent — no second-stage constraints
-link scenarios to each other — so the deterministic equivalent scales linearly
-in the number of scenarios~$N$.
-Third, the block scheduling structure means OR sessions can be evaluated
-separately, keeping individual subproblem sizes manageable.
-The main disadvantage of SAA is that solution quality depends on how well the
-$N$ scenarios represent the true distribution: if tail events (long surgeries
-causing cascade overtime) are under-sampled, the policy may underestimate
-expected cost. This motivates evaluating multiple sampling strategies alongside
-random sampling and using a large out-of-sample evaluation set to validate
-quality independently of the training sample.
-
-\begin{algorithm}[H]
-\caption{Sample Average Approximation (SAA) Algorithm for Stochastic Discrete Optimization}
-\label{alg:saa}
-\begin{algorithmic}[1:]
-\Statex \textbf{Step 1:}
-\State Choose initial sample sizes $N$ (nr. of scenarios) and $N'$ (size of the evaluation sample), a decision rule for determining the number $M$ of SAA replications, a decision rule for increasing the sample sizes $N$ and $N'$ if needed, and tolerance $\varepsilon$.
-\Statex \textbf{Step 2:}
-\For{$m = 1, \dots, M$}
-    \State Generate a sample of size $N$ and solve the SAA problem with objective value $\hat{v}_N^m$ and $\varepsilon$-optimal solution $\hat{x}_N^m$.
-\State Estimate the optimality gap $g(\hat{x}_N^m) - v^*$ and the variance of the gap estimator.
-    \If{the optimality gap and the variance of the gap estimator are sufficiently small}
-        \State \textbf{go to Step 4}
-    \EndIf
-\EndFor
-\Statex \textbf{Step 3:}
-\If{the optimality gap or the variance of the gap estimator is too large}
-    \State Increase the sample sizes $N$ and/or $N'$.
-    \State Return to Step 2.
-\EndIf
-\Statex \textbf{Step 4:}
-\State Choose the best solution $\hat{x}$ among all candidate solutions $\hat{x}_N^m$ produced, using a screening and selection procedure.
-\State \textbf{Stop.}
-\end{algorithmic}
-\end{algorithm}
+For the problem at hand SAA is particularly appropriate: surgery durations follow
+a continuous lognormal distribution whose infinite scenario space is intractable,
+yet the scenario subproblems are independent (no second-stage constraints link
+scenarios), so the deterministic equivalent scales linearly in~$N$, and the block
+structure keeps each subproblem small. Its main weakness is that under-sampling
+tail events (long surgeries causing cascade overtime) biases the cost estimate
+downward, which motivates comparing sampling strategies and validating on a large
+out-of-sample set.

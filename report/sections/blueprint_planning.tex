@@ -1,20 +1,15 @@
 \section{Step 5: Blueprint Planning via a Three-Stage Stochastic Program}
 
-OR scheduling problems decompose into three planning levels~\cite{samudra2016}:
-the Case Mix Problem (CMP) at the strategic level, the Master Surgery
-Scheduling Problem (MSSP) at the tactical level, and the Surgery Scheduling
-Problem (SSP) at the operational level.
-The Step~3 model addresses the SSP; this step adds a tactical MSSP-level
-first stage, yielding a three-stage stochastic program whose new first stage
-decides how many patients of each type to schedule per session before the
-waiting list is known, a blueprint.
+OR scheduling decomposes into three planning levels~\cite{samudra2016}: the Case
+Mix Problem (strategic), the Master Surgery Scheduling Problem (MSSP, tactical),
+and the Surgery Scheduling Problem (SSP, operational). Step~3 addresses the SSP;
+this step prepends a tactical MSSP first stage, yielding a three-stage
+stochastic program whose first stage fixes a \emph{blueprint}: how many patients
+of each type to schedule per session before the waiting list is known.
 
-The scope of this step is a week consisting of three ORT sessions.
-Because all three sessions serve the same specialty, the specialty assignment
-variables $V_{hq}$ and mismatch penalty $D_{hq}$ from the Step~3 model are
-no longer needed and are dropped.
-Furthermore, since the problem scope is defined by exactly three ORT sessions,
-all sessions are always open:
+The scope is one week of three ORT sessions. As all sessions serve the same
+specialty, the specialty variables $V_{hq}$ and mismatch penalty $D_{hq}$ of
+Step~3 are dropped, and every session is always open:
 \begin{equation}
   Z_h = 1 \qquad \forall\, h \in H.
   \label{eq:allopen}
@@ -22,80 +17,44 @@ all sessions are always open:
 
 \subsection{Patient Subgroup Definition}
 \label{sec:clustering}
-
-Because the blueprint must be constructed before the waiting list is revealed,
-we cannot decide on individual patient level.
-In addition, the patient mix consists of a large number of different surgery
-types that only sporadically occur in the waiting list.
-Therefore, patients are aggregated into higher-level subgroups $g \in G$ by
-clustering procedure types based on the empirical mean and standard deviation
-of surgery duration using $k$-means clustering in the $(\mu, \sigma)$ space.
-This data-driven approach extends the label-based three-group classification
+The blueprint is fixed before the waiting list is revealed, so it cannot
+reference individual patients; moreover the mix spans many surgery types that
+each occur only sporadically. Patients are therefore aggregated into subgroups
+$g \in G$ by $k$-means clustering of procedure types in the $(\mu, \sigma)$ space
+of duration mean and standard deviation. This extends the label-based grouping
 of Sheweita et al.~\cite{sheweita2021} by capturing scheduling risk ($\sigma$)
-alongside expected OR consumption ($\mu$).
-Three clusters are identified:
-\textbf{S~(Short)}: low mean, low variance;
-\textbf{M~(Medium)}: moderate mean and variance; and
-\textbf{L~(Long)}: high mean and/or variance,
-giving $G = \{\mathrm{S}, \mathrm{M}, \mathrm{L}\}$.
-Within each subgroup, durations are approximately exchangeable, justifying the
-subgroup count $N_{gh}$ as the relevant decision variable at Stage~1.
+alongside expected OR consumption ($\mu$). Three clusters result---\textbf{S}
+(short, low $\mu$/$\sigma$), \textbf{M} (medium), and \textbf{L} (long, high
+$\mu$ and/or $\sigma$)---giving $G = \{\mathrm{S}, \mathrm{M}, \mathrm{L}\}$.
+Within a subgroup durations are approximately exchangeable, justifying the
+subgroup count $N_{gh}$ as the Stage-1 decision.
 
 \subsection{Three-Stage Structure and Scenario Tree}
 \label{sec:three_stage_structure}
-
-Uncertainty resolves in two phases.
-\textbf{Stage~1}~(MSSP): the blueprint $N_{gh}$ is fixed before any waiting
-list information is known.
-\textbf{Stage~2}~(SSP): the waiting list realisation $r \in R$ is revealed;
-patients are assigned, sequenced, and given appointment times using variables
-$X_{ijh}$, $Y_{ph}$, $A_p$, $Z_h$, $U_{ph}$, now indexed by~$r$.
-\textbf{Stage~3}~(realisation): surgery durations are observed and the
-schedule is evaluated using variables $S_{ps}$, $W_{ps}$, $I_{pp's}$,
-$O_{hs}$, now indexed by~$rs$.
-
-A node-oriented formulation is adopted, indexing variables by nodes in a
-scenario tree $\mathcal{T}$ with root $n_0$, waiting-list nodes $r \in R$
-with realised sets of patients, and leaf nodes $rs$ with patients and
-treatment durations.
-Non-anticipativity is enforced structurally: $N_{gh}$ is defined at $n_0$
-and is shared across all branches; Stage~2 variables are defined at node~$r$
-and are shared across all duration sub-branches $s \in S$; Stage~3 variables
-are $rs$-specific.
-No explicit non-anticipativity constraints are therefore needed.
-In a time-oriented formulation the same requirement would demand explicit
-equality constraints (i.e.\ restricting the first-stage blueprint to be
-consistent: $N_{ghr} = N_{ghr'}$ for all $r, r' \in R$), which the
-node-oriented formulation does not need.
+Uncertainty resolves in two phases. \textbf{Stage~1} (MSSP) fixes the blueprint
+$N_{gh}$. \textbf{Stage~2} (SSP) reveals the waiting-list realisation $r \in R$
+and assigns, sequences, and times patients ($X_{ijh}$, $Y_{ph}$, $A_p$, $Z_h$,
+$U_{ph}$, indexed by $r$). \textbf{Stage~3} observes surgery durations and
+evaluates the schedule ($S_{ps}$, $W_{ps}$, $I_{pp's}$, $O_{hs}$, indexed by
+$rs$). A node-oriented formulation indexes variables by the nodes of a scenario
+tree with root $n_0$, waiting-list nodes $r$, and leaves $rs$; non-anticipativity
+is then structural---$N_{gh}$ lives at $n_0$, Stage-2 variables at $r$, Stage-3
+variables at $rs$---so no explicit non-anticipativity constraints are needed.
 
 \subsection{Extended Model}
 \label{sec:extended_model}
-
-The Step~3 model is extended as follows.
-The set $r \in R$ indexes waiting-list realisations, analogously to how
-$s \in S$ indexes duration scenarios; in total the scenario tree contains
-$|R| \times |S|$ leaves.
-Each realisation $r$ defines a patient set $P_r$ with subgroup partition
-$P_{gr}$ for all $g \in G$.
-The probabilities $\pi_r$ and $\pi_{s|r}$ satisfy $\sum_{r} \pi_r = 1$ and
-$\sum_{s} \pi_{s|r} = 1$.
-The new Stage~1 variable is $N_{gh} \in \mathbb{Z}_{\geq 0}$, the number of
-patients of subgroup~$g$ that may be allocated to session~$h$ under the
-blueprint.
+The set $r \in R$ indexes waiting-list realisations as $s \in S$ indexes duration
+scenarios, giving $|R| \times |S|$ leaves with probabilities $\pi_r$ and
+$\pi_{s|r}$. Each $r$ defines a patient set $P_r$ with subgroup partition
+$P_{gr}$. The new Stage-1 variable $N_{gh} \in \mathbb{Z}_{\geq 0}$ is the number
+of subgroup-$g$ patients allowed in session~$h$.
 
 \paragraph{Objective function.}
-Since all sessions are ORT, the specialty mismatch penalty is dropped.
-To prevent the blueprint from becoming empty, without a cost on $N_{gh}$
-the optimiser would set every quota to $\max_r |P_{gr}|$, imposing no
-planning structure, a penalty $\beta_5$ is added for each blueprint slot.
-This creates tension between blueprint specificity and operational flexibility:
-a tighter blueprint (small $N_{gh}$) reduces planning ambiguity but may
-constrain Stage~2 unnecessarily, while a looser blueprint provides more
-flexibility at a higher planning cost.
-The parameter $\beta_5$ was set to~$1$, ensuring the blueprint remains
-structured without trivially allocating all capacity; a sensitivity analysis
-on $\beta_5$ could further improve solution quality but is left for future work.
-
+Without a cost on $N_{gh}$ the optimiser would set every quota to
+$\max_r |P_{gr}|$ and impose no structure, so a per-slot penalty $\beta_5$ is
+added. This trades blueprint specificity against operational flexibility: a
+tighter blueprint reduces planning ambiguity but may over-constrain Stage~2. We
+set $\beta_5 = 1$; a sensitivity analysis is left for future work.
 \begin{align}
   \min \; & \beta_5 \sum_{h \in H} \sum_{g \in G} N_{gh}
     + \sum_{r \in R} \pi_r \sum_{s \in S} \pi_{s|r} \left(
@@ -107,56 +66,41 @@ on $\beta_5$ could further improve solution quality but is left for future work.
 \end{align}
 
 \paragraph{Blueprint linking constraint.}
-The blueprint links Stage~1 to Stage~2 by capping the number of patients of
-each subgroup per session:
-
+The blueprint caps the number of patients of each subgroup per session:
 \begin{equation}
   \sum_{p \in P_{gr}} Y_{phr} \leq N_{gh}
   \qquad \forall\, g \in G,\; h \in H,\; r \in R
   \label{eq:blueprint_link}
 \end{equation}
+The inequality allows under-utilisation: it is slack when realisation~$r$ holds
+fewer subgroup-$g$ patients than the quota and binding otherwise. All remaining
+Step~3 constraints (excluding the specialty
+constraints~\eqref{eq:spec} and~\eqref{eq:viol}) carry forward as Stage-2
+($r$-indexed) and Stage-3 ($rs$-indexed) constraints. The deterministic
+equivalent scales as $\mathcal{O}(|R| \cdot |P|^2 \cdot |H|)$ binary and
+$\mathcal{O}(|R| \cdot |S| \cdot (|P|^2 + |H|))$ continuous variables;
+tractability is kept by SAA with moderate $|R|$ and $|S|$.
 
-\noindent The inequality (rather than equality) allows under-utilisation of
-blueprint capacity: when realization~$r$ contains fewer patients of subgroup~$g$
-than the quota, the constraint is non-binding, preserving feasibility.
-Conversely, when patients are abundant the constraint is active and restricts
-Stage~2 assignments to at most $N_{gh}$ patients per group per session.
-
-All remaining Step~3 constraints (excluding the specialty-related
-constraints~\eqref{eq:spec} and~\eqref{eq:viol}) carry forward as Stage~2
-constraints (indexed by~$r$) and Stage~3 constraints (indexed by~$rs$).
-The deterministic equivalent scales as
-$\mathcal{O}(|R| \cdot |P|^2 \cdot |H|)$ in binary variables and
-$\mathcal{O}(|R| \cdot |S| \cdot (|P|^2 + |H|))$ in continuous variables;
-tractability is maintained by applying SAA with moderate $|R|$ and~$|S|$.
-
-\paragraph{Session symmetry-breaking.}
-The three sessions are identical (equal opening and closing times, no
-session-specific data), so any permutation of the session indices yields an
-equivalent solution. To remove this $|H|!$ symmetry, which would otherwise
-inflate the branch-and-bound tree, the blueprint columns are ordered by a
-lexicographic capacity key that weights L above M above S:
-$100\,N_{\mathrm{L}h} + 10\,N_{\mathrm{M}h} + N_{\mathrm{S}h}$ is required to be
-non-increasing in~$h$. Because the sessions are genuinely exchangeable this cut
-preserves optimality while fixing a canonical labelling (session~$0$ carries the
-heaviest case mix).
+\paragraph{Symmetry breaking.}
+As the three sessions are identical, the $|H|!$ index symmetry is removed by
+ordering the columns on the lexicographic capacity key
+$100\,N_{\mathrm{L}h} + 10\,N_{\mathrm{M}h} + N_{\mathrm{S}h}$ (non-increasing
+in~$h$), fixing a canonical labelling (session~0 heaviest) without affecting
+optimality.
 
 \subsection{Instance Design}
 \label{sec:bp_instance}
-
 Surgery types are clustered on the full ORT history
-(\texttt{ort\_patient\_data.csv}); the resulting three subgroups are summarised
-in Table~\ref{tab:bp_clusters}. The clustering is dominated by short procedures
-(50 of 68 types), with a small number of long, high-variance types forming the
-L~group. Each waiting-list realisation is generated by drawing three documented
-ORT sessions at random from \texttt{step\_5\_sample\_sessions.csv} and pooling
-their patients; we use $|R| = 3$ realisations with equal probability
-$\pi_r = 1/3$, and $|S| = 5$ duration scenarios per realisation drawn by
-importance sampling ($k = 1$). The blueprint penalty is set to $\beta_5 = 1$.
-The three sampled realisations contain $16$, $14$ and $14$ patients with
-subgroup compositions $(15\mathrm{S},1\mathrm{M},0\mathrm{L})$,
-$(12\mathrm{S},1\mathrm{M},1\mathrm{L})$ and
-$(12\mathrm{S},2\mathrm{M},0\mathrm{L})$, respectively.
+(\texttt{ort\_patient\_data.csv}); the subgroups are summarised in
+Table~\ref{tab:bp_clusters}, with the mix dominated by short procedures (50 of
+68 types) and three long, high-variance types forming~L. Each waiting-list
+realisation pools the patients of three documented ORT sessions drawn at random
+from \texttt{step\_5\_sample\_sessions.csv}; we use $|R| = 3$ equiprobable
+realisations and $|S| = 5$ duration scenarios each (importance sampling,
+$k = 1$), with $\beta_5 = 1$. The three realisations contain $16$, $14$, and
+$14$ patients with compositions $(15\mathrm{S},1\mathrm{M},0\mathrm{L})$,
+$(12\mathrm{S},1\mathrm{M},1\mathrm{L})$, and
+$(12\mathrm{S},2\mathrm{M},0\mathrm{L})$.
 
 \begin{table}[h]
   \centering
@@ -175,16 +119,13 @@ $(12\mathrm{S},2\mathrm{M},0\mathrm{L})$, respectively.
 
 \subsection{Blueprint Results and Managerial Insights}
 \label{sec:bp_results}
-
-The resulting blueprint is reported in Table~\ref{tab:bp_quota}. Two structural
-features stand out. First, the \emph{per-subgroup totals} (15~S, 2~M, 1~L) equal
-the largest subgroup count observed across the three realisations; with
-$\beta_5 = 1$ the model provisions exactly enough capacity to absorb the
-worst-case realisation of each subgroup and no more. This part of the solution
-is provably tight: the lower bound returned by the solver equals the slot cost,
-confirming that no smaller blueprint can remain feasible. Second, the single
-long case is isolated in one session while the medium cases are concentrated in
-another, leaving the remaining capacity for short, high-throughput procedures.
+Table~\ref{tab:bp_quota} reports the blueprint. The per-subgroup totals
+(15~S, 2~M, 1~L) equal the largest subgroup count observed across the three
+realisations: with $\beta_5 = 1$ the model provisions exactly enough capacity to
+absorb the worst-case realisation and no more, and this part of the solution is
+provably tight (the solver lower bound equals the slot cost). The single long
+case is isolated in one session and the medium cases concentrated in another,
+leaving the rest for short, high-throughput procedures.
 
 \begin{table}[h]
   \centering
@@ -203,232 +144,82 @@ another, leaving the remaining capacity for short, high-throughput procedures.
   \end{tabular}
 \end{table}
 
-The managerial reading is that a robust weekly blueprint should reserve one
-session for the long, high-variance procedures and dedicate the others to a
-high volume of short cases, rather than spreading long cases evenly. Isolating
-the variance-driving cases limits how far a single overrun can cascade into
-downstream waiting and overtime, while the short-case sessions remain dense and
-predictable.
+Managerially, a robust weekly blueprint should reserve one session for the long,
+high-variance procedures and devote the others to a high volume of short cases,
+rather than spreading long cases evenly. Isolating the variance-driving cases
+limits how far a single overrun cascades into downstream waiting and overtime,
+while the short-case sessions stay dense and predictable.
 
 \paragraph{Tractability.}
-As in Step~3, the embedded sequencing constraints carry large Big-$M$
-coefficients, and here this weakness is compounded by the three nested Stage-2
-scheduling problems. Within a $600$-second time limit the solver therefore
-returns a high-quality feasible blueprint with a sizeable residual optimality
-gap on the \emph{operational} cost component, while the blueprint capacities
-themselves are at the proven lower bound. Reducing $|S|$, using random rather
-than importance sampling for a more stable cost estimate, or strengthening the
-second-stage relaxation would tighten this gap; a full $\beta_5$ sensitivity
-analysis is left for future work.
+The Big-$M$ sequencing constraints, compounded by three nested Stage-2 problems,
+leave a sizeable residual gap on the \emph{operational} cost within the
+600-second limit, while the capacities $N_{gh}$ reach the proven lower bound.
 
 \subsection{Blueprint Stability Across Sampling Seeds}
 \label{sec:bp_consistency}
-
-Because the blueprint is constructed from a finite Sample Average Approximation
-(SAA) of the underlying uncertainty---$|R|$ waiting-list realisations and
-$|S|$ duration scenarios per realisation---a single solve reflects one
-particular random draw. To establish that the recommended quota table
-$N_{gh}$ is a property of the data rather than an artefact of one sample, we
-re-solve the three-stage program over a sequence of independent seeds
-$\theta \in \{42, 43, 44, \dots\}$ and compare the resulting blueprints.
-
-For the comparison to be meaningful the subgroup definitions must be held
-invariant across seeds. The $k$-means clustering of
-Section~\ref{sec:clustering} depends on a (random) initialisation, so re-seeding
-it together with the sampler would permute the S/M/L labels and render the
-quota tables incommensurable. We therefore decouple the two sources of
-randomness: the clustering is computed \emph{once} on the full ORT history with
-a fixed clustering seed, while the seed $\theta$ governs only the operational
-draws---which three documented sessions form each realisation
-(Section~\ref{sec:bp_instance}) and the duration scenarios sampled within each
-realisation. All structural parameters ($|R|$, $|S|$, $\beta_5$, and the
-sampling method) are likewise fixed.
-
-Each seed therefore produces a blueprint over the \emph{same} subgroup
-definitions, and we record for every run its settings, its objective
-decomposed into the slot cost
-$\beta_5\sum_{g,h} N_{gh}$ and the residual operational cost, the attained
-optimality gap, and the complete quota table $N_{gh}$, one row per seed in a
-cumulative results file. Stability is then read directly from this table:
-agreement of the per-subgroup totals $\sum_h N_{gh}$ across seeds indicates that
-the provisioned capacity is robust to the particular waiting lists sampled,
-while agreement of the per-session allocation indicates that the qualitative
-managerial recommendation---isolating the long, high-variance cases and
-densifying the short-case sessions (Section~\ref{sec:bp_results})---is itself a
-stable feature rather than sampling noise.
-
-Tables~\ref{tab:bp_seeds_quality} and~\ref{tab:bp_seeds_quotas} summarise
-the nine blueprint solves over seeds $\theta \in \{42, \ldots, 50\}$ using a
-larger SAA instance ($|R|=5$, $|S|=20$, LHS, $\beta_5 = 1$).
-All runs hit the 600-second time limit.
-The large residual gaps ($\approx$79--84\,\%) sit entirely in the operational
-cost component; the blueprint capacities $N_{gh}$ are at the proven lower
-bound in every run, confirming that the slot-cost term is reliably identified
-within the available time budget.
-
-\begin{table}[h]
-  \centering
-  \caption{Blueprint solution quality across sampling seeds
-           ($|R|=5$, $|S|=20$, $\beta_5=1$, LHS, 600-s limit;
-           all runs hit the time limit, status~9).
-           The optimality gap lies entirely in the operational cost component;
-           slot costs are at the proven lower bound in every run.}
-  \label{tab:bp_seeds_quality}
-  \setlength{\tabcolsep}{5pt}
-  \begin{tabular}{rrrrr}
-    \toprule
-    Seed & Gap (\%) & Total slots & Slot cost & In-sample obj. \\
-    \midrule
-    \textbf{42} & \textbf{80.15} & \textbf{20} & \textbf{20.0} & \textbf{95.73} \\
-    43 & 81.84 & 21 & 21.0 & 104.61 \\
-    44 & 79.43 & 22 & 22.0 & 106.95 \\
-    45 & 83.37 & 22 & 22.0 & 120.25 \\
-    46 & 81.79 & 19 & 19.0 & 104.33 \\
-    47 & 84.40 & 18 & 18.0 & 115.42 \\
-    48 & 83.91 & 20 & 20.0 & 124.30 \\
-    49 & 80.74 & 20 & 20.0 & 103.86 \\
-    50 & 84.21 & 19 & 19.0 & 113.97 \\
-    \midrule
-    Mean & 82.21 & 20.1 & 20.1 & 109.94 \\
-    \bottomrule
-  \end{tabular}
-\end{table}
-
-\begin{table}[h]
-  \centering
-  \caption{Blueprint quotas $N_{gh}$ per sampling seed, grouped by subgroup;
-           $\Sigma$ is the per-subgroup total $\sum_h N_{gh}$.
-           The bold row (seed~42) is the recommended robust blueprint
-           (Section~\ref{sec:bp_robust}).}
-  \label{tab:bp_seeds_quotas}
-  \setlength{\tabcolsep}{4pt}
-  \begin{tabular}{r|rrrr|rrrr|rrrr}
-    \toprule
-    & \multicolumn{4}{c|}{S (Short)} & \multicolumn{4}{c|}{M (Medium)} & \multicolumn{4}{c}{L (Long)} \\
-    Seed & $h{=}0$ & $h{=}1$ & $h{=}2$ & $\Sigma$
-         & $h{=}0$ & $h{=}1$ & $h{=}2$ & $\Sigma$
-         & $h{=}0$ & $h{=}1$ & $h{=}2$ & $\Sigma$ \\
-    \midrule
-    \textbf{42} & \textbf{6} & \textbf{5} & \textbf{5} & \textbf{16}
-                & \textbf{1} & \textbf{1} & \textbf{1} & \textbf{3}
-                & \textbf{1} & \textbf{0} & \textbf{0} & \textbf{1} \\
-    43 & 6 & 5 & 5 & 16 & 0 & 2 & 2 & 4 & 1 & 0 & 0 & 1 \\
-    44 & 7 & 6 & 5 & 18 & 0 & 1 & 1 & 2 & 2 & 0 & 0 & 2 \\
-    45 & 5 & 7 & 7 & 19 & 2 & 1 & 0 & 3 & 0 & 0 & 0 & 0 \\
-    46 & 6 & 5 & 5 & 16 & 1 & 1 & 1 & 3 & 0 & 0 & 0 & 0 \\
-    47 & 6 & 6 & 5 & 17 & 1 & 0 & 0 & 1 & 0 & 0 & 0 & 0 \\
-    48 & 6 & 6 & 5 & 17 & 0 & 1 & 1 & 2 & 1 & 0 & 0 & 1 \\
-    49 & 5 & 6 & 5 & 16 & 2 & 1 & 0 & 3 & 1 & 0 & 0 & 1 \\
-    50 & 6 & 5 & 6 & 17 & 1 & 1 & 0 & 2 & 0 & 0 & 0 & 0 \\
-    \bottomrule
-  \end{tabular}
-\end{table}
-
-\paragraph{Cross-seed observations.}
-Three regularities emerge from Table~\ref{tab:bp_seeds_quotas}.
-First, the \emph{S~(Short) total is the most stable dimension}: seven of
-nine seeds produce $\sum_h N_{Sh} \in \{16, 17\}$, and the modal value
-is~16 (seeds 42, 43, 46, 49).
-This matches the largest short-case count observed across the five sampled
-waiting lists, confirming that the $\beta_5$~penalty drives exact worst-case
-provisioning without slack.
-Second, the \emph{L~(Long) allocation is structurally invariant when present}:
-all five seeds where $\sum_h N_{Lh} \geq 1$ concentrate every long-case
-slot in session~0 ($N_{L1} = N_{L2} = 0$ without exception).
-This is not an artefact of the symmetry-breaking ordering constraint; it is
-an emergent optimisation outcome, indicating that reserving one dedicated
-session for high-variance procedures is genuinely optimal for this case mix.
-Third, the \emph{M~(Medium) subgroup is the primary source of variability}:
-$\sum_h N_{Mh}$ ranges from~1 to~4 across seeds, reflecting the sensitivity
-of medium-case provisioning to which particular waiting lists are sampled.
-
-\paragraph{Managerial implications.}
-The cross-seed pattern supports three planning recommendations.
-\emph{(i)~Designate one session as the long-case anchor.}
-Concentrating the single long procedure in session~0 isolates duration
-uncertainty and prevents an overrun from cascading into subsequent sessions;
-the optimiser selects this structure in every seed that provisions a long slot,
-regardless of the particular waiting lists drawn.
-\emph{(ii)~Provision at least one long-case slot by default.}
-Long surgery types represent only three of 68 types, yet they appear in five
-of the nine sampled waiting lists ($\approx$55\,\%), so a blueprint with
-$\sum_h N_{Lh} = 0$ will be infeasible roughly half the time under the
-observed ORT mix.
-Risk-neutral provisioning sets $N_{L0} = 1$.
-\emph{(iii)~Distribute medium-case slots uniformly across sessions.}
-Medium-duration procedures (mean $\approx$126\,min) can be accommodated in
-any session without materially increasing overtime risk; a uniform allocation
-$N_{Mh} = 1$ for all $h$ avoids concentrating scheduling uncertainty in a
-single session and keeps all sessions comparably loaded.
+A single solve reflects one SAA draw. To check that the quota table is a
+property of the data rather than an artefact of one sample, the program is
+re-solved over nine seeds $\theta \in \{42, \ldots, 50\}$ with a larger instance
+($|R|=5$, $|S|=20$, LHS), holding the clustering fixed so the S/M/L labels stay
+comparable (Appendix~\ref{app:bp_stability}). Three regularities emerge
+(Tables~\ref{tab:bp_seeds_quality}--\ref{tab:bp_seeds_quotas}). The \emph{S
+total is the most stable dimension} (modal $\sum_h N_{Sh} = 16$, matching the
+largest short-case count and confirming worst-case provisioning without slack).
+The \emph{L allocation is structurally invariant}: every seed that provisions a
+long slot concentrates it in session~0, an emergent outcome rather than an
+artefact of the symmetry cut. The \emph{M subgroup is the main source of
+variability} ($\sum_h N_{Mh} \in [1,4]$). This supports three planning rules:
+(i)~designate one session as the long-case anchor; (ii)~provision at least one
+long slot by default, since long types appear in $\approx$55\% of sampled
+waiting lists despite being three of 68 types; and (iii)~distribute medium slots
+uniformly, as medium cases ($\approx$126\,min) do not materially raise overtime
+risk.
 
 \subsection{Recommended Blueprint}
 \label{sec:bp_robust}
-
-Aggregating the stability evidence, solution quality, and the managerial
-principles above, seed~42 is recommended as the robust blueprint setting.
-It achieves the lowest in-sample objective (95.7) among the nine runs and
-the second-lowest optimality gap (80.2\,\%), and produces quotas that agree
-with the modal pattern across all seeds: $\sum_h N_{Sh} = 16$ (modal S
-total, shared by seeds 42, 43, 46, 49), $\sum_h N_{Mh} = 3$ (modal M
-total, shared by seeds 42, 45, 46, 49), and $\sum_h N_{Lh} = 1$ (L
-provision maintained, present in five seeds).
-The session-level allocation---$S{:}[6,5,5]$, $M{:}[1,1,1]$,
-$L{:}[1,0,0]$---distributes short-case and medium-case capacity
-symmetrically across sessions while isolating the long case in session~0,
-consistent with the invariant observed in every seed that provisions a
-long-case slot.
-This blueprint is adopted as the reference policy in the operational cost
-comparison of Section~\ref{sec:bp_apply}.
+Aggregating the stability evidence, solution quality, and the rules above,
+seed~42 is adopted as the reference policy: it attains the lowest in-sample
+objective (95.7) and the second-lowest optimality gap (80.2\%), and its quotas
+match the modal totals ($\sum_h N_{Sh} = 16$, $\sum_h N_{Mh} = 3$,
+$\sum_h N_{Lh} = 1$). The session-level allocation---$S{:}[6,5,5]$,
+$M{:}[1,1,1]$, $L{:}[1,0,0]$---spreads short and medium capacity symmetrically
+while isolating the long case in session~0. This blueprint is used in the
+operational comparison below.
 
 \subsection{Operational Cost of Imposing the Blueprint}
 \label{sec:bp_apply}
+The blueprint is fixed before the waiting list is known; to price obedience to
+it, a comparison instance is built as a Stage-2 realisation---three documented
+ORT sessions drawn at random and pooled---but retaining the recorded assignment
+and sequence so the operational Step~1--3 chain applies unchanged, with types
+mapped to $G$ by the same clustering. The chain is solved twice: a \emph{baseline}
+run with free assignment, and a \emph{restricted} run adding
+$\sum_{p \in P_g} Y_{ph} \leq N_{gh}$. Both policies are evaluated out of sample
+on one shared scenario set (as in the VSS analysis), so their cost difference is
+the \emph{operational cost of the blueprint}, non-negative up to the solves'
+optimality gaps since the restricted region is a subset of the baseline.
 
-The blueprint is a tactical template fixed before the waiting list is known;
-its purpose is to constrain the downstream operational schedule. To quantify the
-operational price of obeying it, we evaluate a \emph{given} blueprint as an
-a~priori restriction on an independent scheduling instance and compare the
-resulting schedule against the unrestricted optimum.
+We repeat the comparison over six seeds. The blueprint binds only at the
+full-assignment step: in Steps~1 and~2 the assignment is fixed from the
+documented schedule, so baseline and blueprint coincide exactly for every seed
+(Appendix~\ref{app:bp_comparison}). Figure~\ref{fig:bp_comparison_step3} shows
+the Step~3 comparison. Where both solves are feasible, the out-of-sample costs
+differ only marginally and with mixed sign (e.g.\ $41.2 \to 40.6$,
+$75.5 \to 72.6$, $66.6 \to 67.1$), i.e.\ within the large residual optimality
+gaps: imposing the tactical template is \emph{operationally close to free}. The
+exception is seed~54, where the restricted problem is \emph{infeasible}: the
+drawn waiting list holds 17 short cases but the blueprint provisions only 16
+S-slots, so the worst-case-tight quota cannot absorb a heavier-than-sampled
+realisation. This exposes the central trade-off of tight provisioning---a
+negligible flexibility cost when feasible, but no headroom above the sampled
+worst case---and motivates a small safety margin on the dominant subgroup.
 
-\paragraph{Comparison instance.}
-A dedicated instance is built that is structurally identical to the blueprint's
-Stage~2: three documented ORT sessions are drawn at random from the ORT history
-and their patients pooled, mirroring the realisation construction of
-Section~\ref{sec:bp_instance} but retaining the recorded session assignment and
-intra-session sequence so that the operational Step~1--3 chain applies
-unchanged. The instance is fixed once and reused across both solves so that the
-two differ only in the presence of the blueprint. Its surgery types are mapped
-to the subgroups $g \in G$ using the same fixed clustering, so the quotas
-$N_{gh}$ are directly applicable.
-
-\paragraph{Restricted versus unrestricted schedules.}
-The operational Step~1--3 warm-start chain (timing only; sequencing and timing;
-full assignment) is solved twice on this instance.
-In the \emph{baseline} run the chain is solved as usual, leaving the
-patient-to-session assignment free in the full step.
-In the \emph{restricted} run the blueprint linking
-constraint~\eqref{eq:blueprint_link} is imposed on the (now fixed) capacities
-$N_{gh}$,
-\begin{equation}
-  \sum_{p \in P_g} Y_{ph} \leq N_{gh}
-  \qquad \forall\, g \in G,\; h \in H,
-  \label{eq:bp_apply_link}
-\end{equation}
-where $P_g$ is the subgroup partition of the instance.
-The restriction is binding only in the full step: Steps~1 and~2 fix the
-assignment $Y_{ph}$ from the documented schedule, so they are identical across
-the two runs, whereas the full step optimises $Y_{ph}$ freely and is therefore
-the locus at which the blueprint reshapes the solution.
-
-\paragraph{Evaluation.}
-Both full-step policies are evaluated out of sample on a single, independently
-sampled scenario set, following the same shared-evaluation protocol used for the
-SAA convergence and VSS analyses, which removes evaluation-sample noise from the
-comparison. The quantity of interest is the difference in out-of-sample expected
-cost between the restricted and baseline policies: the \emph{operational cost of
-the blueprint}, i.e.\ the flexibility forgone by committing to the tactical
-template. Since the restricted feasible region is a subset of the baseline one,
-the restricted in-sample objective is an upper bound on the baseline objective,
-so this difference is non-negative up to the residual optimality gaps of the two
-solves. Reporting it alongside the realised per-session subgroup composition of
-each schedule shows both \emph{how much} structure costs and \emph{where} the
-blueprint forces the assignment to differ from the unconstrained optimum.
+\begin{figure}[t]
+  \centering
+  \includegraphics[width=0.82\linewidth]{Figures/blueprint_comparison_step3.png}
+  \caption{Operational cost of the blueprint at the full-assignment step (Step~3):
+           baseline (free assignment) vs.\ blueprint (restricted) out-of-sample
+           cost per comparison seed, stacked by objective part. Seed~54 is
+           infeasible under the blueprint (17 short cases vs.\ a 16-slot quota).}
+  \label{fig:bp_comparison_step3}
+\end{figure}

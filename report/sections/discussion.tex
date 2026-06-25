@@ -1,0 +1,28 @@
+\section{Discussion}
+\label{sec:discussion}
+
+\paragraph{Limitations.}
+The main limitation is computational. The full assignment model (Step~3) and the
+three-stage blueprint program (Step~5) embed sequencing constraints with large
+Big-$M$ coefficients that weaken the LP relaxation, leaving wide optimality gaps
+within the imposed time limits (300\,s and 600\,s). This is not merely a run-time
+issue: it produces the spurious negative Step-3 VSS
+(Section~\ref{subsec:VSS}) and means the operational cost of the blueprint can
+only be bounded to within the residual gap rather than measured exactly
+(Section~\ref{sec:bp_apply}). The blueprint is also built from a small scenario
+tree and an untuned penalty $\beta_5 = 1$, so the recommended quotas reflect the
+sampled waiting lists rather than a calibrated risk preference, and its scope is a
+single specialty (ORT). Finally, durations are sampled independently per patient,
+ignoring day-level correlation, and the worst-case-tight provisioning leaves no
+headroom---as the infeasible comparison seed shows.
+
+\paragraph{Further research.}
+A sensitivity sweep over $\beta_5$ would expose the full trade-off between
+blueprint tightness and operational flexibility. Tightening the
+formulation---logic-based or indicator constraints in place of Big-$M$, valid
+inequalities, or a Benders decomposition exploiting the scenario-separable second
+stage---would close the gap and turn the blueprint comparison into an exact
+measurement. Larger and correlated scenario models, a small safety margin on the
+dominant subgroup, and an extension to a multi-specialty, multi-week horizon with
+a risk-averse objective (e.g.\ CVaR on overtime) would bring the model closer to
+tactical master-schedule practice.

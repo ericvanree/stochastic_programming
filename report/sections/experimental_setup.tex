@@ -84,26 +84,22 @@ for the same $N$~\cite{McKay1979}.
 
 \subsubsection{Importance Sampling (IS)}
 
-Importance Sampling (IS) is a variance reduction technique that samples more frequently from regions of the input space that would disproportionately influence the objective, and corrects for this bias through likelihood ratio reweighting. In
-appointment scheduling, more extreme duration scenarios, where procedures run
-substantially longer or shorter than expected, are the primary drivers of
-overtime, idling, and patient waiting costs. Standard random sampling assigns
-these tail scenarios a low probability, requiring a large number of scenarios to achieve reliable cost estimates.
+Importance Sampling (IS) is a variance-reduction technique that draws more
+frequently from regions that disproportionately influence the objective and
+corrects the bias through likelihood-ratio reweighting. In appointment
+scheduling the extreme duration scenarios---procedures running substantially
+longer or shorter than expected---drive overtime, idling, and waiting costs, yet
+random sampling assigns them low probability, requiring many scenarios for
+reliable estimates.
 
-To enrich the scenario set with such tail events, we apply a mean-shifting IS
-strategy as used in \cite{aditri-2026}. Specifically, we partition the
-scenario set $S$ into three equally sized subsets and draw each subset from a
-shifted lognormal distribution with mean parameter $\mu_\tau - k\sigma_\tau$,
-$\mu_\tau$, and $\mu_\tau + k\sigma_\tau$, respectively, where $k > 0$
-controls the magnitude of the shift. The negative shift targets scenarios in
-which procedures finish earlier than expected, increasing idling costs, while
-the positive shift targets scenarios in which procedures overrun, increasing
-overtime and downstream waiting costs.
-
-To ensure that the SAA objective remains an unbiased estimator of the true
-expected cost, each scenario $s$ is reweighted by its likelihood ratio under
-the nominal distribution relative to the shifted distribution from which it
-was drawn:
+To enrich the set with such tail events we apply the mean-shifting strategy
+of~\cite{aditri-2026}: the scenario set $S$ is split into three equal subsets
+drawn from lognormals with mean parameters $\mu_\tau - k\sigma_\tau$, $\mu_\tau$,
+and $\mu_\tau + k\sigma_\tau$ ($k > 0$). The negative shift targets early
+finishes (idling) and the positive shift targets overruns (overtime and
+downstream waiting). To keep the SAA objective unbiased, each scenario $s$ is
+reweighted by its likelihood ratio under the nominal versus the shifted
+distribution it was drawn from:
 %
 \begin{equation}
   \pi_s
@@ -112,27 +108,20 @@ was drawn:
   \label{eq:is_weights}
 \end{equation}
 %
-where $f(\cdot \mid \mu, \sigma_\tau)$ denotes the nominal lognormal density,
-$\delta_s \in \{-k,\, 0,\, k\}$ is the shift applied to the subset from
-which scenario $s$ was drawn, and the product runs over all surgeries $i$ in
-the schedule. Since surgery durations are sampled independently, the joint
-probability of a scenario factorises into the product of the individual
-marginal densities. Scenarios whose realised durations are consistent with the
-nominal distribution receive a weight close to one, while scenarios drawn from
-a strongly shifted distribution receive lower weight in proportion to how far
-they deviate from the nominal mean.
+where $f(\cdot \mid \mu, \sigma_\tau)$ is the nominal lognormal density,
+$\delta_s \in \{-k,\, 0,\, k\}$ the shift applied to scenario $s$'s subset, and
+the product runs over all surgeries $i$ (the joint density factorises as
+durations are independent). Scenarios consistent with the nominal distribution
+receive weights near one, while strongly shifted ones receive proportionally
+lower weights.
 
-A direct consequence of this reweighting is that the enriched tail scenarios —
-precisely those that drive overtime and cascade waiting — carry comparatively
-\emph{small} importance weights, since they are unlikely under the nominal
-distribution. The effective sample size, $N_{\text{eff}} = 1 / \sum_s \pi_s^2$,
-is therefore smaller than $N$, and for small $N$ the SAA objective under IS may
-require \emph{more} scenarios than RS to reach a stable estimate of the expected
-cost. The compensating benefit is robustness: because IS guarantees that
-worst-case (long-duration) realisations are represented in every sample, the
-resulting policies tend to hedge more conservatively against tail events. We
-return to this trade-off when interpreting the convergence results in
-Section~\ref{sec:results}.
+Consequently the enriched tail scenarios---precisely those driving overtime and
+cascade waiting---carry \emph{small} weights, so the effective sample size
+$N_{\text{eff}} = 1 / \sum_s \pi_s^2$ is below $N$, and for small $N$ IS may need
+\emph{more} scenarios than RS for a stable estimate. The compensating benefit is
+robustness: by guaranteeing that worst-case realisations appear in every sample,
+IS yields policies that hedge more conservatively against tail events
+(Section~\ref{sec:results}).
 
 \subsection{Experimental Setup}
 \label{sec:exp_setup}
@@ -164,14 +153,6 @@ appropriate $N$ is then selected \emph{post hoc} from the convergence plot as
 the point beyond which the mean cost stabilises and the interval no longer
 narrows materially.
 
-\paragraph{Expected performance of sampling strategies.}
-We expect LHS to outperform RS for small $N$ due to its stratification
-guarantee, and IS to excel when the objective is dominated by high-duration
-scenarios (overtime, late-cascade waiting times). RS, while unbiased, is
-expected to require the largest $N$ for comparable variance. These hypotheses
-are tested by applying each method across Steps~1--4 and comparing out-of-sample
-confidence intervals.
-
 \paragraph{Experiments}
 
 \begin{table}[H]
@@ -190,20 +171,11 @@ confidence intervals.
   \end{tabular}
 \end{table}
 
-For Steps~1 and~2, we use the patient set from waiting list~4, which contains patients
-planned across 6 unique OR sessions, each with a known session identifier and
-within-session position label. This instance is used for both the timing-only model
-(Step~1) and the timing-and-sequencing model (Step~2), with the session and position
-labels serving to fix the assignment and sequencing in Step~1.
-
-For Step~3, four patient sets, drawn from waiting lists~4, 7, 10, and~13, are
-used to assess solution quality across different patient populations.
-Each waiting list contains patients planned across at least 6 unique sessions.
-
-Each of the four samples is solved using the SAA framework with all three sampling strategies.
-Starting from $N = 10$ scenarios and increasing in steps of 5, we apply.
-
-For each sample set, $M = 10$ independent replications are solved and the resulting
-out-of-sample objective values are evaluated on a fixed evaluation set of
-$N' = 1{,}000$ RS scenarios which we generate once per sample. Convergence is monitored via the $95\%$ confidence
-interval~\eqref{eq:ci}, which is kept for each $(sample,sampling~approach,N)$ and used to plot convergence and evaluate when $N$ is large enough for each of the sampling approaches (for each of the samples).
+Steps~1 and~2 use the waiting-list~4 patient set, whose six documented OR
+sessions carry session and position labels that fix the assignment (and, for
+Step~1, the sequencing). Step~3 uses four patient sets (waiting lists~4, 7, 10,
+and~13), each spanning at least six sessions, to assess solution quality across
+patient populations. Each sample is solved with all three sampling strategies,
+sweeping $N$ from 10 in steps of 5, using the $M = 10$ replications and the
+$N' = 1{,}000$ evaluation set described above and the convergence
+criterion~\eqref{eq:ci}.
