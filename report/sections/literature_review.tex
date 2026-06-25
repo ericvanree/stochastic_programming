@@ -1,9 +1,9 @@
 \section{Literature review}
-The contribution of this report is to formulate the problem as a stochastic programming model and to evaluate its performance using a finite scenario set generated through sample average approximation (SAA). In this chapter, we will identify an appropriate solution approach and introduce the sample average approximation approach. 
+The contribution of this report is to formulate the problem as a stochastic programming model and to evaluate its performance using a finite scenario set generated through SAA. In this chapter, we will identify an appropriate solution approach and introduce the SAA approach. 
 
 \subsection{Solution approaches}
 \subsubsection{Advance and allocation steps}
-In literature, the advance and allocation steps can be solved using either sequential (SEQ) or integrated (INT) approaches \cite{Molina-Pariente2026}. Typically, the SEQ approach addresses the advance scheduling and allocation scheduling steps sequentially, whereas with the integrated approach, both advance and allocation steps are jointly addressed.
+In literature, the advance and allocation steps can be solved using either sequential or integrated approaches \cite{Molina-Pariente2026}. Typically, the sequantial approach addresses the advance scheduling and allocation scheduling steps sequentially, whereas with the integrated approach, both advance and allocation steps are jointly addressed.
 
 \textbf{Sequential Approach:}
 Dai et al. propose a mathematical formulation to model surgery schedules under uncertainty of surgery duration in which patients are assigned to an operating room and place in the sequence of patients within the operation room \cite{DAI2025107098}.
@@ -18,13 +18,13 @@ Traditionally, open (OS) and block (BS) scheduling policies are considered in th
 To regard the advance and allocation steps, the sequential approach allows modelling the problem in a way that does not require pre-defining a total number of slots per session whhich is preferred given the problem at hand in which patient treatments durations differ significantly, such that it might require introducing dummy patients to fill all patient slots, depending on the model. In addition, the problem is dealt with as a block scheduling problem, in which blocks are separately sequenced to simplify the problem at hand. 
 
 \subsection{Sample average approximation}
-In the paper of Molina-Pariente et al. \cite{Molina-Pariente2026} an integrated operating room planning and scheduling problem under uncertainty is discussed. The model is formulated by denoting a set of days H (planning horizon) and a set J of ORs ($j=1,...,|J|)$ available on each day h in the planning horizon, denoting (j,h) as OR-day. To solve the problem, the sample average approximation (SAA) procedure, in which the problem is approximated as a discrete deterministic problem that integrates N samples, is proposed. \cite{Denton2006} also proposes SAA to solve the problem at hand. The SAA approach \cite{Kleywegt} follows the logic described in Algorithm~\ref{alg:saa} (Appendix~\ref{app:saa_alg}) and is a good solution methodology for problems in which numerous different outcomes may occur, such that an exact solution becomes computationally intractable.
+In the paper of Molina-Pariente et al. \cite{Molina-Pariente2026} an integrated operating room planning and scheduling problem under uncertainty is discussed. The model is formulated by denoting a set of days H (planning horizon) and a set J of ORs ($j=1,...,|J|)$ available on each day h in the planning horizon, denoting (j,h) as OR-day. To solve the problem, the SAA procedure, in which the problem is approximated as a discrete deterministic problem that integrates N samples, is proposed. \cite{Denton2006} also proposes SAA to solve the problem at hand. The SAA approach \cite{Kleywegt} follows the logic described in Algorithm~\ref{alg:saa} (Appendix~\ref{app:saa_alg}) and is a good solution methodology for problems in which numerous different outcomes may occur, such that an exact solution becomes computationally intractable.
 
 Stochastic programming balances tractability and solution quality by considering
 many scenarios at once, as if deterministic, at the cost that quality depends on
 how well those scenarios represent the true outcomes. The SAA procedure
 determines a suitable number of scenarios~$N$ under a chosen sampling method
-(random, Latin hypercube, orthogonal, or importance sampling) and an evaluation
+(random, latin hypercube, orthogonal, or importance sampling) and an evaluation
 sample~$N'$, by repeatedly solving with $N$ scenarios $M$ times; the choice of
 $N$, $M$, and $N'$ therefore governs both quality and run time.
 
