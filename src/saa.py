@@ -161,8 +161,15 @@ def simulate_schedule(
     t_start: int = _T_START,
     t_close: int = _T_CLOSE,
     c: int = _C,
-) -> float:
-    """Analytically evaluate a fixed first-stage solution on out-of-sample scenarios."""
+    return_parts: bool = False,
+):
+    """Analytically evaluate a fixed first-stage solution on out-of-sample scenarios.
+
+    By default returns the total weighted objective (float).  When
+    ``return_parts=True`` returns a dict with the **weighted** contribution of
+    each objective part — ``{"W", "I", "O", "D", "total"}`` — so callers can
+    decompose the out-of-sample objective the same way it is built in-sample.
+    """
     sequences: dict[int, list] = {}
     for h in H:
         seq: list = []
@@ -178,7 +185,8 @@ def simulate_schedule(
             cur = nxt
         sequences[h] = seq
 
-    total_scenario_cost = 0.0
+    # Expected (probability-weighted) raw quantities, accumulated across scenarios.
+    exp_w = exp_i = exp_o = 0.0
     for s in S_eval:
         w_s = i_s = o_s = 0.0
         for h in H:
@@ -202,12 +210,22 @@ def simulate_schedule(
             finish_last = starts[last_p] + d_eval[last_p, s]
             o_s += max(0.0, finish_last - t_close)
 
-        total_scenario_cost += pi_eval[s] * (
-            beta["W"] * w_s + beta["I"] * i_s + beta["O"] * o_s
-        )
+        exp_w += pi_eval[s] * w_s
+        exp_i += pi_eval[s] * i_s
+        exp_o += pi_eval[s] * o_s
 
-    d_penalty = beta["D"] * sum(D_vals.get((h, q), 0.0) for h in H for q in SPECS)
-    return total_scenario_cost + d_penalty
+    w_contrib = beta["W"] * exp_w
+    i_contrib = beta["I"] * exp_i
+    o_contrib = beta["O"] * exp_o
+    d_contrib = beta["D"] * sum(D_vals.get((h, q), 0.0) for h in H for q in SPECS)
+    total = w_contrib + i_contrib + o_contrib + d_contrib
+
+    if return_parts:
+        return {
+            "W": w_contrib, "I": i_contrib, "O": o_contrib,
+            "D": d_contrib, "total": total,
+        }
+    return total
 
 
 # ─────────────────────────────────────────────────────────────────────────────
