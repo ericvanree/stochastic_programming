@@ -120,6 +120,7 @@ IS yields policies that hedge more conservatively against tail events
 
 \subsection{Experimental Setup}
 \label{sec:exp_setup}
+In this section, the parameters and used evaluation sample is discussed and the experiments are defined.
 \paragraph{closing time}
 Based on a 8 hour working day we set the $t^{start} = 480$ and $t^{close} = 960$. Our experiments prove that these settings are an effective balance between fitting all patients in a day and needing overtime in a number of scenarios.
 \paragraph{Evaluation sample}
@@ -164,7 +165,11 @@ the point beyond which the objective stabilises.
   \end{tabular}
 \end{table}
 
-For the SAA, the waiting-list~4 patient set is used, whose six documented OR
-sessions carry session and position labels that fix the assignment for Steps 1 and 2 (and, for
-Step~1, the sequencing). For assessing the solution quality of the stochastic programming solutions four patient sets are used  in total (waiting lists~4, 7, 10,
-and~13), each spanning at least six sessions.
+Steps~1 and~2 use the waiting-list~4 patient set, whose six documented OR
+sessions carry session and position labels that fix the assignment (and, for
+Step~1, the sequencing). The characteristics of this waiting list are shown in Table~\ref{tab:instance}. Step~3 uses four patient sets (waiting lists~4, 7, 10,
+and~13), each spanning at least six sessions, to assess solution quality across
+patient populations. Each sample is solved with all three sampling strategies,
+sweeping $N$ from 10 in steps of 5, using the $M = 10$ replications and the
+$N' = 1{,}000$ evaluation set described above and the convergence
+criterion~\eqref{eq:ci}.

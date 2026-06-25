@@ -7,19 +7,19 @@ For each of the 3 sampling methods, we ran step 1 to 3 with several numbers of s
 \begin{figure}[t]
     \centering
     \includegraphics[width=0.72\linewidth]{Figures/saa_convergence_step3.png}
-    \caption{SAA convergence for the full MILP (Step 3): out-of-sample evaluation value against the number of training scenarios $N$ for each sampling method. The line is the mean over replications and the shaded band spans $\pm 1$ standard deviation.}
+    \caption{SAA convergence for the full MILP (Step 3)}
     \label{fig:saa_convergence_step3}
 \end{figure}
 
-Latin Hypercube Sampling (LHS) performs best of the three, as its equiprobable
+LHS performs best of the three, as its equiprobable
 stratification gives a good representation of the evaluation set, followed by
-random sampling. Importance sampling performs significantly worse, likely
+RS. IS performs significantly worse, likely
 because its many extreme scenarios are weighted in the training run but
 under-represented in the evaluation run.
 
 \subsection{Training and evaluation resutls}
 \label{subsec:traineval}
-With the results found in Section~\ref{subsec:SAAresults}, we select the number of training scenarios to be 20 and lhs as sampling technique to compare the training solution values and evaluation values for 4 different waiting lists. The comparison for the full MILP (Step 3) is depicted in Figure~\ref{fig:objective_breakdown_step3}; the corresponding breakdowns for Step 1 (timing only) and Step 2 (sequencing and timing) are reported in Appendix~\ref{app:objective_breakdowns}.
+With the results found in Section~\ref{subsec:SAAresults}, we select the number of training scenarios to be 20 and LHS as sampling technique to compare the training solution values and evaluation values for 4 different waiting lists. The comparison for the full MILP (Step 3) is depicted in Figure~\ref{fig:objective_breakdown_step3}; the corresponding breakdowns for Step 1 (timing only) and Step 2 (sequencing and timing) are reported in Appendix~\ref{app:objective_breakdowns}.
 
 \begin{figure}[t]
     \centering
@@ -32,7 +32,7 @@ For every waiting list the out-of-sample cost exceeds the in-sample cost. This g
 
 Focusing on the timing-related penalties, waiting is consistently the largest contributor on the out-of-sample objective, followed by idle time and then overtime. This ordering is stable across all four waiting lists and across both the in-sample and out-of-sample bars.
 
-For wl7 and wl13 the specialty-mismatch penalty (D) dominates the objective. In these instances patients are assigned to a session whose specialisation differs from the patient's own specialisation. Such a mismatch incurs a large penalty, since it should be avoided whenever a matching session is available; the model only resorts to it when the available session capacity for the patient's own specialisation is insufficient to accommodate the waiting list.
+For wl7 and wl13 the specialty-mismatch penalty dominates the objective. In these instances patients are assigned to a session whose specialisation differs from the patient's own specialisation. Such a mismatch incurs a large penalty, since it should be avoided whenever a matching session is available; the model only resorts to it when the available session capacity for the patient's own specialisation is insufficient to accommodate the waiting list.
 
 \subsection{Expected Value of Perfect Information}
 \label{subsec:EVPI}
@@ -44,7 +44,7 @@ evaluation scenarios, and for each compute the policy cost $z_{\text{policy}}(i)
 and the perfect-information cost $z_{\text{perf}}(i)$ (the MILP solved with
 scenario $i$ as its sole scenario, so all first-stage decisions use full
 knowledge of the realised durations). The per-scenario value is
-$\text{VPI}(i) = z_{\text{policy}}(i) - z_{\text{perf}}(i) \geq 0$, and the EVPI
+$\text{VPI}(i) = z_{\text{policy}}(i) - z_{\text{perf}}(i)$, and the EVPI
 is its sample mean,
 \[
     \widehat{\text{EVPI}} = \frac{1}{I} \sum_{i=1}^{I} \text{VPI}(i).
@@ -56,10 +56,10 @@ of 10 evaluation scenarios, $z_{\text{perf}}(i) = 0$, meaning that a
 penalty-free schedule exists when the surgery durations are known in advance.
 For these scenarios, the entire cost incurred by the policy is attributable to
 uncertainty, and $\text{VPI}(i) = z_{\text{policy}}(i)$. Only 3 scenarios
-($i = 1$, $i = 4$ and $i = 8$) still require overtime under perfect
+($i = 1,4,8$) still require overtime under perfect
 information, suggesting that these particular realisations of surgery durations
-are inherently expensive to schedule regardless of the decision rule applied.
-The estimated expected value of perfect information over the 10 evaluation scenarios is
+are expensive to schedule regardless of the decision rule applied. The estimated
+expected value of perfect information over the 10 evaluation scenarios is
 $\widehat{\text{EVPI}} = 117.91$ (standard deviation $34.63$, $95\%$ confidence
 interval $[96.45, 139.37]$), indicating that on average a large share of the
 policy cost could in principle be eliminated by resolving duration uncertainty
@@ -116,8 +116,7 @@ either training set), giving
     \text{RP} = \frac{1}{N'} \sum_{i=1}^{N'} z\!\left(\text{SAA policy}, i\right),
 \]
 where $z(\cdot, i)$ is the recourse-simulated cost of a fixed policy under
-scenario $i$. Sharing one evaluation set removes evaluation-sample noise, so
-$\text{VSS} \geq 0$ holds up to solver optimality gaps; a large VSS means
+scenario $i$. Sharing one evaluation set removes evaluation-sample noise; a large VSS means
 modelling uncertainty yields a substantial gain over the deterministic plan.
 
 We estimate the VSS for the same four waiting lists used in
@@ -130,7 +129,7 @@ Appendix~\ref{app:vss_breakdowns}.
 \begin{figure}[t]
     \centering
     \includegraphics[width=0.72\linewidth]{Figures/vss_eev_rp_step3.png}
-    \caption{Out-of-sample deterministic policy and stochastic policy for the full MILP on four waiting lists. The annotated gap is the estimated VSS, both in absolute terms and as a percentage of the EEV.}
+    \caption{Out-of-sample deterministic policy and stochastic policy for the full MILP on four waiting lists}
     \label{fig:vss_step3}
 \end{figure}
 
@@ -147,8 +146,7 @@ for wl4 and wl10 ($+34\%$, $+28\%$) but turns negative for wl7 ($-13\%$) and wl1
 explanation is computational. Within the $300$\,s limit neither instance is
 solved to optimality, but the single-scenario deterministic problem attains a
 smaller gap than the far larger stochastic one, so its EV policy can happen to
-evaluate better out of sample than the prematurely terminated SAA policy. This
-spurious effect is consistent with the two affected lists being exactly those
+evaluate better out of sample than the prematurely terminated SAA policy. This effect is consistent with the two affected lists being exactly those
 dominated by the specialty-mismatch term (Section~\ref{subsec:traineval}), whose
 MILPs are hardest to solve; solved to optimality, as in Steps 1 and 2, the VSS
 would be non-negative throughout.
@@ -160,10 +158,7 @@ scheduling. First, waiting time is consistently the dominant cost component
 (Section~\ref{subsec:traineval}); operationally, slack should be built in early
 in each session, as the optimiser is willing to accept some idle time to stop a
 single overrun from cascading into the waiting time of every downstream patient.
-Second, the specialty-mismatch penalty is incurred only when own-specialty
-capacity is insufficient: a forced mismatch is therefore a capacity-shortfall
-signal rather than a free scheduling choice, and blocks should be kept
-specialty-pure whenever a matching session is available. Third, the value of the
+Second, the value of the
 stochastic solution is positive wherever the model converges and largest when
 the patient-to-session assignment is free
 (Section~\ref{subsec:VSS}); modelling duration uncertainty pays off most at the
@@ -171,8 +166,5 @@ assignment level, and planning against mean durations systematically
 underperforms out of sample. Fourth, the large EVPI ($\approx$118,
 Section~\ref{subsec:EVPI}) indicates that most cost stems from duration
 uncertainty itself, so investing in better duration prediction or shorter
-scheduling lead times has high operational value. Finally, the persistent
-out-of-sample penalty relative to in-sample cost warns against over-tuning a
-schedule to a handful of scenarios; the chosen $N \approx 20$ LHS scenarios
-balance robustness against computational cost. These operational patterns are
+scheduling lead times has high operational value. These operational patterns are
 revisited alongside the tactical blueprint findings in the conclusion.
