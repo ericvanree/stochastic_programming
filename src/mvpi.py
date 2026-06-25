@@ -37,6 +37,7 @@ from main import build_model
 from saa import (
     load_data,
     simulate_schedule,
+    solve_policy_chain,
     _make_fixed_X,
     _make_fixed_Y,
     _T_START,
@@ -90,23 +91,25 @@ def run_mvpi(args) -> pd.DataFrame:
     print(f"  Done — {len(S_train)} scenarios.\n")
 
     print(f"Solving stochastic model (step {args.step}) for here-and-now policy...")
-    m_policy = build_model(
-        "Policy",
-        P, P0, H,
-        S_train, d_train, pi_train,
-        SPECS, q_pq,
-        _BETA, _T_START, _T_CLOSE, _C,
-        fixed_X=fixed_X,
-        fixed_Y=fixed_Y,
+
+    # Build the policy via the same step 1→2→3 warm-start chain as main.py:
+    # each step is seeded with the previous step's solution.
+    def _configure(m, step, with_mip_focus=False):
+        m.setParam("OutputFlag", 0)
+        m.setParam("TimeLimit", time_limit)
+        if with_mip_focus:
+            m.setParam("MIPFocus", 1)
+        if step == 3:
+            m.setParam("MIPGap", 0.01)
+            m.setParam("Presolve", 2)
+            m.setParam("Cuts", 2)
+            m.setParam("Heuristics", 0.3)
+
+    m_policy = solve_policy_chain(
+        P, P0, H, SPECS, q_pq, session_sequences, patient_to_h,
+        args.step, d_train, S_train, pi_train,
+        _configure, name_prefix="Policy",
     )
-    m_policy.setParam("OutputFlag", 0)
-    m_policy.setParam("TimeLimit", time_limit)
-    if args.step == 3:
-        m_policy.setParam("MIPGap", 0.01)
-        m_policy.setParam("Presolve", 2)
-        m_policy.setParam("Cuts", 2)
-        m_policy.setParam("Heuristics", 0.3)
-    m_policy.optimize()
 
     if m_policy.SolCount == 0:
         raise RuntimeError(

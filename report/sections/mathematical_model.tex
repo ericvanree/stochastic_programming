@@ -92,10 +92,10 @@ $A_p$ fixes each patient's appointment time, while $X_{pp'h}$ and $Y_{ph}$
 fix the sequencing and session assignments respectively.
 
 \begin{align}
-  Q(x, s) = \min_{S,W,I,O} \quad
+  Q(x, s) = \min_{S,W,I,O} \;
     & \beta_1 \sum_{p \in P} W_{ps}
-    + \beta_2 \sum_{p \in P}\sum_{\substack{p' \in P \\ p' \neq p}} I_{pp's}
-    + \beta_3 \sum_{h \in H} O_{hs}
+    + \beta_2 \!\!\sum_{\substack{p,p' \in P \\ p' \neq p}}\!\! I_{pp's} \nonumber \\
+    &+ \beta_3 \sum_{h \in H} O_{hs}
   \label{eq:recourse_obj}
 \end{align}
 
@@ -136,8 +136,8 @@ time. The big-$M$ term deactivates the constraint for patients not in session
 $h$:
 
 \begin{align}
-  O_{hs} \geq\; S_{ps} + d_{ps} - t^{\text{close}} - M(1 - Y_{ph})
-  \qquad \forall\; p \in P,\; h \in H,\; s \in S
+  O_{hs} \geq\; S_{ps} + d_{ps} - t^{\text{close}} - M(1 - Y_{ph}) \nonumber \\
+  \forall\; p \in P,\; h \in H,\; s \in S
   \label{eq:rc_ot}
 \end{align}
 
@@ -158,8 +158,8 @@ non-consecutive pairs:
 \paragraph{Non-negativity.}
 
 \begin{equation}
-  S_{ps},\; W_{ps},\; I_{pp's},\; O_{hs} \geq 0
-  \qquad \forall\; p,p' \in P,\; p \neq p',\; h \in H,\; s \in S
+  S_{ps},\; W_{ps},\; I_{pp's},\; O_{hs} \geq 0 \\
+  \forall\; p,p' \in P,\; p \neq p',\; h \in H,\; s \in S
   \label{eq:rc_nn}
 \end{equation}
 
@@ -389,8 +389,8 @@ between two subsequent surgeries:
 \paragraph{Second-stage domains.}
 
 \begin{equation}
-  S_{ps},\; W_{ps},\; I_{pp's},\; O_{hs} \geq 0
-  \qquad \forall\, p,p' \in P,\; p \neq p',\; h \in H,\; s \in S
+  S_{ps},\; W_{ps},\; I_{pp's},\; O_{hs} \geq 0 \\
+  \forall\, p,p' \in P,\; p \neq p',\; h \in H,\; s \in S
   \label{eq:dom_second}
 \end{equation}
 
@@ -440,5 +440,5 @@ patient in any higher-indexed session of the same specialty.
 Additionally, Step~3 is warm-started from the Step~2 solution via a
 within-specialty session-permutation that satisfies SB1 and SB2, injecting a
 high-quality incumbent before branching begins.
-Despite these measures, with the setting of step 3, the model does not solve to optimality in resonable time (within an hour), therefor, a 300-second time limit 
+Despite these measures, when solving for step 3, the model does not reach optimality in resonable time (within an hour), therefor, a 300-second time limit 
 is applied to balance solution quality with run time.

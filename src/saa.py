@@ -285,6 +285,76 @@ def _warm_start_s2_to_s3(m2, m3, P, P0, H, S_train, SPECS) -> None:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# 4a'. POLICY-CHAIN HELPER  (shared by saa.py, vss.py, mvpi.py)
+# ─────────────────────────────────────────────────────────────────────────────
+
+def solve_policy_chain(
+    P, P0, H, SPECS, q_pq,
+    session_sequences, patient_to_h,
+    target_step, d_train, S_train, pi_train,
+    configure, name_prefix="policy",
+):
+    """
+    Build and solve the model up to *target_step*, warm-starting each step from
+    the previous one — exactly the sequence used in main.py and the SAA worker.
+
+    Step 1 fixes X and Y from the CSV; Step 2 frees X (warm-started by a
+    name-by-name copy of the Step 1 solution); Step 3 frees everything
+    (warm-started from Step 2 via `_warm_start_s2_to_s3`, which applies the
+    symmetry-breaking session permutation).  Returns the solved model at
+    *target_step* so that the resulting first-stage policy is identical in
+    construction to the one produced by main.py.
+
+    `configure(m, step, with_mip_focus=False)` is a caller-supplied callback that
+    applies solver parameters (output flag, time limit, MIP gap, …) per step.
+    """
+    fixed_X_s1 = _make_fixed_X(P0, H, session_sequences)
+    fixed_Y    = _make_fixed_Y(P, H, patient_to_h)
+
+    # ── Step 1: X and Y fixed from CSV ───────────────────────────────────────
+    m1 = build_model(
+        f"{name_prefix}_s1", P, P0, H, S_train, d_train, pi_train,
+        SPECS, q_pq, _BETA, _T_START, _T_CLOSE, _C,
+        fixed_X=fixed_X_s1, fixed_Y=fixed_Y,
+    )
+    configure(m1, 1)
+    m1.optimize()
+    if target_step == 1:
+        return m1
+
+    # ── Step 2: Y fixed, warm start from Step 1 ──────────────────────────────
+    m2 = build_model(
+        f"{name_prefix}_s2", P, P0, H, S_train, d_train, pi_train,
+        SPECS, q_pq, _BETA, _T_START, _T_CLOSE, _C,
+        fixed_Y=fixed_Y,
+    )
+    warm_s2 = m1.SolCount > 0
+    if warm_s2:
+        m1_by_name = {v.VarName: v for v in m1.getVars()}
+        for v2 in m2.getVars():
+            v1 = m1_by_name.get(v2.VarName)
+            if v1 is not None:
+                v2.Start = v1.X
+        m2.update()
+    configure(m2, 2, with_mip_focus=warm_s2)
+    m2.optimize()
+    if target_step == 2:
+        return m2
+
+    # ── Step 3: all free, warm start from Step 2 (with permutation) ───────────
+    m3 = build_model(
+        f"{name_prefix}_s3", P, P0, H, S_train, d_train, pi_train,
+        SPECS, q_pq, _BETA, _T_START, _T_CLOSE, _C,
+    )
+    # _warm_start_s2_to_s3 calls m3.update() and sets MIPFocus=1 internally.
+    if m2.SolCount > 0:
+        _warm_start_s2_to_s3(m2, m3, P, P0, H, S_train, SPECS)
+    configure(m3, 3, with_mip_focus=False)  # MIPFocus already set by warm start
+    m3.optimize()
+    return m3
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # 4b. PER-REPLICATION WORKER  (module-level so ProcessPoolExecutor can pickle it)
 # ─────────────────────────────────────────────────────────────────────────────
 
