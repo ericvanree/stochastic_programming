@@ -40,6 +40,25 @@ Figures~\ref{fig:hist_average_realized_error} and~\ref{fig:hist_planned_duration
     \label{fig:hist_planned_duration_error}
 \end{figure}
 
+\section{SAA Convergence for Steps 1 and 2}
+\label{app:saa_convergence}
+
+This appendix provides the SAA convergence results for Step 1 (timing only) and Step 2 (sequencing and timing), complementing the Step 3 results discussed in Section~\ref{subsec:SAAresults}. Figures~\ref{fig:saa_convergence_step1} and~\ref{fig:saa_convergence_step2} use the same layout as Figure~\ref{fig:saa_convergence_step3}: the out-of-sample evaluation value is plotted against the number of training scenarios $N$ for each sampling method, with the line the mean over replications and the shaded band spanning $\pm 1$ standard deviation.
+
+\begin{figure}[h]
+    \centering
+    \includegraphics[width=1\linewidth]{Figures/saa_convergence_step1.png}
+    \caption{SAA convergence for Step 1 (timing only).}
+    \label{fig:saa_convergence_step1}
+\end{figure}
+
+\begin{figure}[h]
+    \centering
+    \includegraphics[width=1\linewidth]{Figures/saa_convergence_step2.png}
+    \caption{SAA convergence for Step 2 (sequencing and timing).}
+    \label{fig:saa_convergence_step2}
+\end{figure}
+
 \section{Objective Breakdowns for Steps 1 and 2}
 \label{app:objective_breakdowns}
 

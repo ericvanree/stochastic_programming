@@ -2,9 +2,14 @@
 \label{sec:results}
 \subsection{SAA results}
 \label{subsec:SAAresults}
-For each of the 3 sampling methods, we ran step 1 to 3 with several numbers of scenarios. The output for step 3 is depiceted in figure~X, the results of step 1 and 2 can be found in appendix X.
+For each of the 3 sampling methods, we ran step 1 to 3 with several numbers of scenarios. The output for step 3 is depicted in Figure~\ref{fig:saa_convergence_step3}; the results of step 1 and 2 can be found in Appendix~\ref{app:saa_convergence}.
 
-figure
+\begin{figure}[h]
+    \centering
+    \includegraphics[width=1\linewidth]{Figures/saa_convergence_step3.png}
+    \caption{SAA convergence for the full MILP (Step 3): out-of-sample evaluation value against the number of training scenarios $N$ for each sampling method. The line is the mean over replications and the shaded band spans $\pm 1$ standard deviation.}
+    \label{fig:saa_convergence_step3}
+\end{figure}
 
 Looking at the three sampling methods, we can conlude that Latin Hyprcube Samplign performs the best of the three, likely becasue of that it samples for the equiprobable intervals, such that it gives a good representation of the evaluation set. LHS is follow by random sampling. Importance sampling perfroms significantly worse than the other 2 sampling techniques, likely because the high number of extreme scenarios that are weighted in the training run, but not present in the evaluation run.
 
