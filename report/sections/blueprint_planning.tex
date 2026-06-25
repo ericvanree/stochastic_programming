@@ -129,7 +129,7 @@ uniformly.
 The blueprint generated with $s=42$ represents the different rasters quite well, and is provided in Table~\ref{tab:bp_quota}. The single long
 case is isolated in one session and the short and medium cases are evenly distributed over the sessions.
 Seed~42 is therefore adopted as a reference raster. In addition, it attains the lowest in-sample
-objective (95.7), and the second-lowest optimality gap (80.2\%). Supporting this decision. 
+objective (95.7), and the second-lowest optimality gap (80.2\%), supporting this decision. 
 The quality of this blueprint will be evaluated in the operational comparison below.
 
 \begin{table}[h]
@@ -151,26 +151,25 @@ The quality of this blueprint will be evaluated in the operational comparison be
 
 \subsection{Operational Cost of Imposing the Blueprint}
 \label{sec:bp_apply}
-To compare the effect of raster implementations on solution quality, the raster derived with $s=42$ is compared with a solution generated with the raster constraints. 
-To evaluate the impact of the raster on the out-of-sample solution quality. 
+To assess the effect of raster implementations on solution quality, the raster derived with $s=42$ is used to evaluate the impact of the raster on the solution quality of a certain patient set realization. 
 
 The blueprint is fixed before the waiting list is known. To evaluate the impact of implementing such blueprint, a comparison instance is built by randomly drawing three documented
 ORT sessions as a potential realization of the waiting list for the three sessions. The realization is solved twice: once for a baseline
 run with free assignment, and a restricted run adding
-$\sum_{p \in P_g} Y_{ph} \leq N_{gh}$ to adhere to the blueprint. This way, both policies are evaluated out of sample
-on one shared scenario set. 
+$\sum_{p \in P_g} Y_{ph} \leq N_{gh}$ to adhere to the blueprint. This way, both policies are evaluated
+on one shared scenario. 
 
 We repeat the comparison over six seeds. Figure~\ref{fig:bp_comparison_step3} shows
 the Step~3 comparison. Where both solves are feasible, the out-of-sample costs
 differ only marginally and with mixed sign (e.g.\ $41.2 \to 40.6$,
 $75.5 \to 72.6$, $66.6 \to 67.1$), i.e.\ within the large residual optimality
-gaps: imposing the tactical template is \emph{operationally close to free}. The
-exception is seed~54, where the restricted problem is \emph{infeasible}: the
+gaps: imposing the tactical template is operationally close to free. The
+exception is seed~54, where the restricted problem is infeasible: the
 drawn waiting list holds 17 short cases but the blueprint provisions only 16
-S-slots, so the worst-case-tight quota cannot absorb a heavier-than-sampled
-realisation. This exposes the central trade-off of tight provisioning---a
-negligible flexibility cost when feasible, but no headroom above the sampled
-worst case---and motivates a small safety margin on the dominant subgroup.
+S-slots, so not all patients in that category can be scheduled under the blueprint. 
+This exposes one of the central trade-offs of tight blueprints; a
+negligible flexibility cost when feasible, but no guarantee that a feasible schedule can be found for
+all patients on the waiting list in all scenarios.
 
 \begin{figure}[t]
   \centering
