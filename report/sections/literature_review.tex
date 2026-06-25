@@ -15,7 +15,7 @@ In \cite{Denton2006} the one operation room problem is formulated as a two-stage
 \subsubsection{Open (OS) and Block (BS) Scheduling}
 Traditionally, open (OS) and block (BS) scheduling policies are considered in the literature. Under the OS policy, any surgeon can perform surgeries in any OR-day available within the planning horizon, which complicates the problem. A variant of the OS policy, the BS policy, is therefore frequently used in reality. With the BS policy, a surgeon only performs surgeries in one OR block time. In this case, the determination of the start times is simplified compared with the OS policy as it allows OR-sessions to be scheduled separately. 
 
-To regard the advance and allocation steps, the sequential approach allows modelling the problem in a way that does not require pre-defining a total number of slots per session whhich is preferred given the problem at hand in which patient treatments durations differ significantly, such that it might require introducing dummy patients to fill all patient slots, depending on the model. In addition, the problem is dealt with as a block scheduling problem, in which blocks are separately sequenced to simplify the problem at hand. 
+To regard the advance and allocation steps, the sequential approach allows modelling the problem in a way that does not require pre-defining a total number of slots per session. In addition, the problem is dealt with as a block scheduling problem, in which blocks are separately sequenced to simplify the problem at hand. 
 
 \subsection{Sample average approximation}
 In the paper of Molina-Pariente et al. \cite{Molina-Pariente2026} an integrated operating room planning and scheduling problem under uncertainty is discussed. The model is formulated by denoting a set of days H (planning horizon) and a set J of ORs ($j=1,...,|J|)$ available on each day h in the planning horizon, denoting (j,h) as OR-day. To solve the problem, the sample average approximation (SAA) procedure, in which the problem is approximated as a discrete deterministic problem that integrates N samples, is proposed. \cite{Denton2006} also proposes SAA to solve the problem at hand. The SAA approach \cite{Kleywegt} follows the logic described in Algorithm~\ref{alg:saa} (Appendix~\ref{app:saa_alg}) and is a good solution methodology for problems in which numerous different outcomes may occur, such that an exact solution becomes computationally intractable.
@@ -23,16 +23,12 @@ In the paper of Molina-Pariente et al. \cite{Molina-Pariente2026} an integrated 
 Stochastic programming balances tractability and solution quality by considering
 many scenarios at once, as if deterministic, at the cost that quality depends on
 how well those scenarios represent the true outcomes. The SAA procedure
-determines a suitable number of scenarios~$N$ under a chosen sampling method
-(random, Latin hypercube, orthogonal, or importance sampling) and an evaluation
+determines a suitable number of scenarios~$N$ under a chosen sampling method and an evaluation
 sample~$N'$, by repeatedly solving with $N$ scenarios $M$ times; the choice of
 $N$, $M$, and $N'$ therefore governs both quality and run time.
 
 For the problem at hand SAA is particularly appropriate: surgery durations follow
-a continuous lognormal distribution whose infinite scenario space is intractable,
+a continuous distribution whose infinite scenario space is intractable,
 yet the scenario subproblems are independent (no second-stage constraints link
 scenarios), so the deterministic equivalent scales linearly in~$N$, and the block
-structure keeps each subproblem small. Its main weakness is that under-sampling
-tail events (long surgeries causing cascade overtime) biases the cost estimate
-downward, which motivates comparing sampling strategies and validating on a large
-out-of-sample set.
+structure keeps each subproblem relatively small.
