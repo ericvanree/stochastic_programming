@@ -87,9 +87,9 @@ if __name__ == "__main__":
     beta = {"W": 0.6, "I": 0.2, "O": 0.2, "D": 100.0}
 
     # ══ Gurobi time limits (seconds) per solve step ════════════════════════════
-    TIME_LIMIT_STEP1 = 600   # Step 1 — Timing only
-    TIME_LIMIT_STEP2 = 600  # Step 2 — Sequencing + timing
-    TIME_LIMIT_STEP3 = 600  # Step 3 — Full MILP
+    TIME_LIMIT_STEP1 = 60   # Step 1 — Timing only
+    TIME_LIMIT_STEP2 = 60  # Step 2 — Sequencing + timing
+    TIME_LIMIT_STEP3 = 300  # Step 3 — Full MILP
 
     # ══ Specialty membership ═══════════════════════════════════════════════════
     specialty_of = {row["Patient ID"]: row["Specialty"] for _, row in df.iterrows()}
