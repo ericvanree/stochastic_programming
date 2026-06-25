@@ -25,7 +25,7 @@ import csv
 import os
 import re
 import sys
-from concurrent.futures import ProcessPoolExecutor
+from concurrent.futures import ProcessPoolExecutor, as_completed
 
 sys.path.insert(0, os.path.dirname(__file__))
 
@@ -463,13 +463,23 @@ def run_saa(args) -> dict[int, str]:
                     for rep in range(args.m_reps)
                 ]
                 with ProcessPoolExecutor(max_workers=args.n_workers) as ex:
-                    results = list(ex.map(_rep_worker, jobs))
-                for rep, (o1, o2, o3) in enumerate(results):
-                    for step, obj in [(1, o1), (2, o2), (3, o3)]:
-                        step_objs[step].append(obj)
-                        existing[step][(method, N, rep)] = obj
-                for step in (1, 2, 3):
-                    _flush_results_csv(existing[step], csv_paths[step])
+                    future_to_rep = {
+                        ex.submit(_rep_worker, job): job["rep"] for job in jobs
+                    }
+                    for fut in as_completed(future_to_rep):
+                        rep = future_to_rep[fut]
+                        try:
+                            o1, o2, o3 = fut.result()
+                        except Exception as exc:
+                            print(f"\n  [WARN] N={N} rep={rep}: worker crashed: {exc}",
+                                  flush=True)
+                            o1 = o2 = o3 = float("nan")
+                        for step, obj in [(1, o1), (2, o2), (3, o3)]:
+                            step_objs[step].append(obj)
+                            existing[step][(method, N, rep)] = obj
+                        # Persist each replication the moment it finishes
+                        for step in (1, 2, 3):
+                            _flush_results_csv(existing[step], csv_paths[step])
 
             else:
                 for rep in range(args.m_reps):
