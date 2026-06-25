@@ -38,7 +38,7 @@ $U_{ph}$, indexed by $r$). \textbf{Stage~3} observes surgery durations and
 evaluates the schedule ($S_{ps}$, $W_{ps}$, $I_{pp's}$, $O_{hs}$, indexed by
 $rs$). A node-oriented formulation indexes variables by the nodes of a scenario
 tree with root $n_0$, waiting-list nodes $r$, and leaves $rs$; non-anticipativity
-is then structural, $N_{gh}$ lives at $n_0$, Stage-2 variables at $r$, Stage-3
+is then structural, $N_{gh}$ is set at $n_0$, Stage-2 variables at $r$, Stage-3
 variables at $rs$, so no explicit non-anticipativity constraints are needed.
 
 \subsection{Extended Model}
@@ -54,7 +54,7 @@ Without a cost on $N_{gh}$ the optimiser would set every quota to
 $\max_r |P_{gr}|$ and impose no structure, so a per-slot penalty $\beta_5$ is
 added. This trades blueprint specificity against operational flexibility: a
 tighter blueprint reduces planning ambiguity but may over-constrain Stage~2. We
-set $\beta_5 = 1$; a sensitivity analysis is left for future work.
+set $\beta_5 = 1$. 
 \begin{align}
   \min \; & \beta_5 \sum_{h \in H} \sum_{g \in G} N_{gh}
     + \sum_{r \in R} \pi_r \sum_{s \in S} \pi_{s|r} \left(
@@ -85,22 +85,17 @@ tractability is kept by SAA with moderate $|R|$ and $|S|$.
 As the three sessions are identical, the $|H|!$ index symmetry is removed by
 ordering the columns on the lexicographic capacity key
 $100\,N_{\mathrm{L}h} + 10\,N_{\mathrm{M}h} + N_{\mathrm{S}h}$ (non-increasing
-in~$h$), fixing a canonical labelling (session~0 heaviest) without affecting
+in~$h$), without affecting
 optimality.
 
 \subsection{Instance Design}
 \label{sec:bp_instance}
 Surgery types are clustered on the full ORT history
-(\texttt{ort\_patient\_data.csv}); the subgroups are summarised in
+and the K-means subgroups are summarised in
 Table~\ref{tab:bp_clusters}, with the mix dominated by short procedures (50 of
 68 types) and three long, high-variance types forming~L. Each waiting-list
-realisation pools the patients of three documented ORT sessions drawn at random
-from \texttt{step\_5\_sample\_sessions.csv}; we use $|R| = 3$ equiprobable
-realisations and $|S| = 5$ duration scenarios each (importance sampling,
-$k = 1$), with $\beta_5 = 1$. The three realisations contain $16$, $14$, and
-$14$ patients with compositions $(15\mathrm{S},1\mathrm{M},0\mathrm{L})$,
-$(12\mathrm{S},1\mathrm{M},1\mathrm{L})$, and
-$(12\mathrm{S},2\mathrm{M},0\mathrm{L})$.
+realisation pools the patients of three documented ORT sessions drawn at random. We use $|R| = 5$ equiprobable
+realisations and $|S| = 20$ duration scenarios each derived using latin hypercube sampling.
 
 \begin{table}[h]
   \centering
@@ -119,13 +114,23 @@ $(12\mathrm{S},2\mathrm{M},0\mathrm{L})$.
 
 \subsection{Blueprint Results and Managerial Insights}
 \label{sec:bp_results}
-Table~\ref{tab:bp_quota} reports the blueprint. The per-subgroup totals
-(15~S, 2~M, 1~L) equal the largest subgroup count observed across the three
-realisations: with $\beta_5 = 1$ the model provisions exactly enough capacity to
-absorb the worst-case realisation and no more, and this part of the solution is
-provably tight (the solver lower bound equals the slot cost). The single long
-case is isolated in one session and the medium cases concentrated in another,
-leaving the rest for short, high-throughput procedures.
+
+A single solve reflects one SAA draw. To check that the resulting raster from the instance design is a
+property of the data rather than an artefact of one sample, blueprints were generated on 9 different seeds, and the per-seed blueprint solutions $N_{gh}$ are listed by session in Appendix~\ref{app:bp_stability} (Table~\ref{tab:bp_seeds_sessions}).
+
+Based on the different blueprints that were derived, we find that most blueprints represent similar rasters in which the patient types are evenly spread over the sessions.
+This seems to suggest that a good appointment heuristic divides treatments with similar characteristics rather evenly over the different sessions.
+We identify three planning rules to which the blueprints seem to adhere:
+(i)~designate one session for the long-cases; (ii)~provision at least one
+long slot by default, since long types appear in $\approx$55\% of sampled
+waiting lists despite being only three of 68 types; and (iii)~distribute short and medium slots
+uniformly.
+
+The blueprint generated with $s=42$ represents the different rasters quite well, and is provided in Table~\ref{tab:bp_quota}. The single long
+case is isolated in one session and the short and medium cases are evenly distributed over the sessions.
+Seed~42 is therefore adopted as a reference raster. In addition, it attains the lowest in-sample
+objective (95.7), and the second-lowest optimality gap (80.2\%). Supporting this decision. 
+The quality of this blueprint will be evaluated in the operational comparison below.
 
 \begin{table}[h]
   \centering
@@ -135,74 +140,27 @@ leaving the rest for short, high-throughput procedures.
     \toprule
     Subgroup & Session 0 & Session 1 & Session 2 & Total \\
     \midrule
-    S (Short)  & 6 & 3 & 6 & 15 \\
-    M (Medium) & 0 & 2 & 0 & 2  \\
+    S (Short)  & 6 & 5 & 5 & 16 \\
+    M (Medium) & 1 & 1 & 1 & 3  \\
     L (Long)   & 1 & 0 & 0 & 1  \\
     \midrule
-    Total      & 7 & 5 & 6 & 18 \\
+    Total      & 8 & 6 & 6 & 20 \\
     \bottomrule
   \end{tabular}
 \end{table}
 
-Managerially, a robust weekly blueprint should reserve one session for the long,
-high-variance procedures and devote the others to a high volume of short cases,
-rather than spreading long cases evenly. Isolating the variance-driving cases
-limits how far a single overrun cascades into downstream waiting and overtime,
-while the short-case sessions stay dense and predictable.
-
-\paragraph{Tractability.}
-The Big-$M$ sequencing constraints, compounded by three nested Stage-2 problems,
-leave a sizeable residual gap on the \emph{operational} cost within the
-600-second limit, while the capacities $N_{gh}$ reach the proven lower bound.
-
-\subsection{Blueprint Stability Across Sampling Seeds}
-\label{sec:bp_consistency}
-A single solve reflects one SAA draw. To check that the quota table is a
-property of the data rather than an artefact of one sample, the program is
-re-solved over nine seeds $\theta \in \{42, \ldots, 50\}$ with a larger instance
-($|R|=5$, $|S|=20$, LHS), holding the clustering fixed so the S/M/L labels stay
-comparable (Appendix~\ref{app:bp_stability}). Three regularities emerge
-(Tables~\ref{tab:bp_seeds_quality}--\ref{tab:bp_seeds_quotas}). The \emph{S
-total is the most stable dimension} (modal $\sum_h N_{Sh} = 16$, matching the
-largest short-case count and confirming worst-case provisioning without slack).
-The \emph{L allocation is structurally invariant}: every seed that provisions a
-long slot concentrates it in session~0, an emergent outcome rather than an
-artefact of the symmetry cut. The \emph{M subgroup is the main source of
-variability} ($\sum_h N_{Mh} \in [1,4]$). This supports three planning rules:
-(i)~designate one session as the long-case anchor; (ii)~provision at least one
-long slot by default, since long types appear in $\approx$55\% of sampled
-waiting lists despite being three of 68 types; and (iii)~distribute medium slots
-uniformly, as medium cases ($\approx$126\,min) do not materially raise overtime
-risk.
-
-\subsection{Recommended Blueprint}
-\label{sec:bp_robust}
-Aggregating the stability evidence, solution quality, and the rules above,
-seed~42 is adopted as the reference policy: it attains the lowest in-sample
-objective (95.7) and the second-lowest optimality gap (80.2\%), and its quotas
-match the modal totals ($\sum_h N_{Sh} = 16$, $\sum_h N_{Mh} = 3$,
-$\sum_h N_{Lh} = 1$). The session-level allocation---$S{:}[6,5,5]$,
-$M{:}[1,1,1]$, $L{:}[1,0,0]$---spreads short and medium capacity symmetrically
-while isolating the long case in session~0. This blueprint is used in the
-operational comparison below.
-
 \subsection{Operational Cost of Imposing the Blueprint}
 \label{sec:bp_apply}
-The blueprint is fixed before the waiting list is known; to price obedience to
-it, a comparison instance is built as a Stage-2 realisation---three documented
-ORT sessions drawn at random and pooled---but retaining the recorded assignment
-and sequence so the operational Step~1--3 chain applies unchanged, with types
-mapped to $G$ by the same clustering. The chain is solved twice: a \emph{baseline}
-run with free assignment, and a \emph{restricted} run adding
-$\sum_{p \in P_g} Y_{ph} \leq N_{gh}$. Both policies are evaluated out of sample
-on one shared scenario set (as in the VSS analysis), so their cost difference is
-the \emph{operational cost of the blueprint}, non-negative up to the solves'
-optimality gaps since the restricted region is a subset of the baseline.
+To compare the effect of raster implementations on solution quality, the raster derived with $s=42$ is compared with a solution generated with the raster constraints. 
+To evaluate the impact of the raster on the out-of-sample solution quality. 
 
-We repeat the comparison over six seeds. The blueprint binds only at the
-full-assignment step: in Steps~1 and~2 the assignment is fixed from the
-documented schedule, so baseline and blueprint coincide exactly for every seed
-(Appendix~\ref{app:bp_comparison}). Figure~\ref{fig:bp_comparison_step3} shows
+The blueprint is fixed before the waiting list is known. To evaluate the impact of implementing such blueprint, a comparison instance is built by randomly drawing three documented
+ORT sessions as a potential realization of the waiting list for the three sessions. The realization is solved twice: once for a baseline
+run with free assignment, and a restricted run adding
+$\sum_{p \in P_g} Y_{ph} \leq N_{gh}$ to adhere to the blueprint. This way, both policies are evaluated out of sample
+on one shared scenario set. 
+
+We repeat the comparison over six seeds. Figure~\ref{fig:bp_comparison_step3} shows
 the Step~3 comparison. Where both solves are feasible, the out-of-sample costs
 differ only marginally and with mixed sign (e.g.\ $41.2 \to 40.6$,
 $75.5 \to 72.6$, $66.6 \to 67.1$), i.e.\ within the large residual optimality
