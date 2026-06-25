@@ -220,3 +220,92 @@ themselves are at the proven lower bound. Reducing $|S|$, using random rather
 than importance sampling for a more stable cost estimate, or strengthening the
 second-stage relaxation would tighten this gap; a full $\beta_5$ sensitivity
 analysis is left for future work.
+
+\subsection{Blueprint Stability Across Sampling Seeds}
+\label{sec:bp_consistency}
+
+Because the blueprint is constructed from a finite Sample Average Approximation
+(SAA) of the underlying uncertainty---$|R|$ waiting-list realisations and
+$|S|$ duration scenarios per realisation---a single solve reflects one
+particular random draw. To establish that the recommended quota table
+$N_{gh}$ is a property of the data rather than an artefact of one sample, we
+re-solve the three-stage program over a sequence of independent seeds
+$\theta \in \{42, 43, 44, \dots\}$ and compare the resulting blueprints.
+
+For the comparison to be meaningful the subgroup definitions must be held
+invariant across seeds. The $k$-means clustering of
+Section~\ref{sec:clustering} depends on a (random) initialisation, so re-seeding
+it together with the sampler would permute the S/M/L labels and render the
+quota tables incommensurable. We therefore decouple the two sources of
+randomness: the clustering is computed \emph{once} on the full ORT history with
+a fixed clustering seed, while the seed $\theta$ governs only the operational
+draws---which three documented sessions form each realisation
+(Section~\ref{sec:bp_instance}) and the duration scenarios sampled within each
+realisation. All structural parameters ($|R|$, $|S|$, $\beta_5$, and the
+sampling method) are likewise fixed.
+
+Each seed therefore produces a blueprint over the \emph{same} subgroup
+definitions, and we record for every run its settings, its objective
+decomposed into the slot cost
+$\beta_5\sum_{g,h} N_{gh}$ and the residual operational cost, the attained
+optimality gap, and the complete quota table $N_{gh}$, one row per seed in a
+cumulative results file. Stability is then read directly from this table:
+agreement of the per-subgroup totals $\sum_h N_{gh}$ across seeds indicates that
+the provisioned capacity is robust to the particular waiting lists sampled,
+while agreement of the per-session allocation indicates that the qualitative
+managerial recommendation---isolating the long, high-variance cases and
+densifying the short-case sessions (Section~\ref{sec:bp_results})---is itself a
+stable feature rather than sampling noise.
+
+\subsection{Operational Cost of Imposing the Blueprint}
+\label{sec:bp_apply}
+
+The blueprint is a tactical template fixed before the waiting list is known;
+its purpose is to constrain the downstream operational schedule. To quantify the
+operational price of obeying it, we evaluate a \emph{given} blueprint as an
+a~priori restriction on an independent scheduling instance and compare the
+resulting schedule against the unrestricted optimum.
+
+\paragraph{Comparison instance.}
+A dedicated instance is built that is structurally identical to the blueprint's
+Stage~2: three documented ORT sessions are drawn at random from the ORT history
+and their patients pooled, mirroring the realisation construction of
+Section~\ref{sec:bp_instance} but retaining the recorded session assignment and
+intra-session sequence so that the operational Step~1--3 chain applies
+unchanged. The instance is fixed once and reused across both solves so that the
+two differ only in the presence of the blueprint. Its surgery types are mapped
+to the subgroups $g \in G$ using the same fixed clustering, so the quotas
+$N_{gh}$ are directly applicable.
+
+\paragraph{Restricted versus unrestricted schedules.}
+The operational Step~1--3 warm-start chain (timing only; sequencing and timing;
+full assignment) is solved twice on this instance.
+In the \emph{baseline} run the chain is solved as usual, leaving the
+patient-to-session assignment free in the full step.
+In the \emph{restricted} run the blueprint linking
+constraint~\eqref{eq:blueprint_link} is imposed on the (now fixed) capacities
+$N_{gh}$,
+\begin{equation}
+  \sum_{p \in P_g} Y_{ph} \leq N_{gh}
+  \qquad \forall\, g \in G,\; h \in H,
+  \label{eq:bp_apply_link}
+\end{equation}
+where $P_g$ is the subgroup partition of the instance.
+The restriction is binding only in the full step: Steps~1 and~2 fix the
+assignment $Y_{ph}$ from the documented schedule, so they are identical across
+the two runs, whereas the full step optimises $Y_{ph}$ freely and is therefore
+the locus at which the blueprint reshapes the solution.
+
+\paragraph{Evaluation.}
+Both full-step policies are evaluated out of sample on a single, independently
+sampled scenario set, following the same shared-evaluation protocol used for the
+SAA convergence and VSS analyses, which removes evaluation-sample noise from the
+comparison. The quantity of interest is the difference in out-of-sample expected
+cost between the restricted and baseline policies: the \emph{operational cost of
+the blueprint}, i.e.\ the flexibility forgone by committing to the tactical
+template. Since the restricted feasible region is a subset of the baseline one,
+the restricted in-sample objective is an upper bound on the baseline objective,
+so this difference is non-negative up to the residual optimality gaps of the two
+solves. Reporting it alongside the realised per-session subgroup composition of
+each schedule shows both \emph{how much} structure costs and \emph{where} the
+blueprint forces the assignment to differ from the unconstrained optimum.
