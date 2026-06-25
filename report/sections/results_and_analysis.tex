@@ -1,0 +1,60 @@
+\section{Results and Analysis}
+\label{sec:results}
+\subsection{Expected Value of Perfect Information}
+
+The Expected Value of Perfect Information (EVPI) quantifies the expected gain from knowing
+the exact scenario before making any decisions. It is estimated as follows.
+
+First, the stochastic MILP is solved using $S$ training scenarios drawn from the
+chosen sampling distribution, yielding a here-and-now policy
+$(X^*, Y^*, A^*, D^*)$.
+Second, $I$ independent evaluation scenarios are generated.
+For each evaluation scenario $i$, two objective values are computed:
+\begin{itemize}
+    \item $z_{\text{policy}}(i)$: the cost using the policy trained on S evaluated on scenario $i$.
+    \item $z_{\text{perf}}(i)$: the cost with perfect information, obtained by solving the MILP with scenario $i$ as the sole scenario, so all first-stage decisions can be optimised with full knowledge of the realised durations.
+\end{itemize}
+The value of perfect information for scenario $i$ is
+\[
+    \text{VPI}(i) = z_{\text{policy}}(i) - z_{\text{perf}}(i) \;\geq\; 0,
+\]
+and the EVPI is estimated as the sample mean over the $I$ evaluation scenarios:
+\[
+    \widehat{\text{EVPI}} = \frac{1}{I} \sum_{i=1}^{I} \text{VPI}(i).
+\]
+
+Table~\ref{tab:vpi} presents the per-scenario costs for 10 training scenarios
+and 10 evaluation scenarios. In 8 out of 10 evaluation scenarios,
+$z_{\text{perf}}(i) = 0$, meaning that a penalty-free schedule exists when
+the surgery durations are known in advance. For these scenarios, the entire
+cost incurred by the policy is attributable to uncertainty, and
+$\text{VPI}(i) = z_{\text{policy}}(i)$. Only 2 scenarios (i = 1 and i = 4)
+require penalties even under perfect information, suggesting that these
+particular realisations of surgery durations are inherently infeasible to
+schedule without cost regardless of the decision rule applied. The estimated
+expected value of perfect information over the 10 evaluation scenarios is
+$\widehat{\text{EVPI}} = 158.05$, indicating that on average a large share of
+the policy cost could in principle be eliminated by resolving duration
+uncertainty prior to scheduling.
+
+\begin{table}[h]
+    \centering
+    \caption{Per-scenario costs and Value of Perfect Information (VPI).}
+    \label{tab:vpi}
+    \begin{tabular}{rrrr}
+        \toprule
+        $i$ & $z_{\text{policy}}(i)$ & $z_{\text{perf}}(i)$ & $\text{VPI}(i)$ \\
+        \midrule
+         1 & 225.146 & 16.048 & 209.098 \\
+         2 & 119.461 &  0.000 & 119.461 \\
+         3 & 119.849 &  0.000 & 119.849 \\
+         4 & 177.055 &  2.742 & 174.313 \\
+         5 & 153.461 &  0.000 & 153.461 \\
+         6 & 128.878 &  0.000 & 128.878 \\
+         7 & 140.100 &  0.000 & 140.100 \\
+         8 & 186.231 &  0.000 & 186.231 \\
+         9 & 174.386 &  0.000 & 174.386 \\
+        10 & 174.679 &  0.000 & 174.679 \\
+        \bottomrule
+    \end{tabular}
+\end{table}

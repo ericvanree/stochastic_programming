@@ -1,0 +1,191 @@
+\section{Experimental setup and instance designs}
+\label{sec:saa}
+
+This section describes the experimental design used to find a suitable sampling
+strategy and scenario count that balance outcome coverage with computational
+tractability. We first describe how scenarios are constructed from the data,
+then the three sampling strategies evaluated, and finally the overall
+experimental design including parameter justification.
+
+\subsection{Scenario Generation from Data}
+\label{sec:scenario_data}
+
+The dataset contains over $20{,}000$ patient treatment records, each including
+specialty $q \in \{\text{CHI},\text{ORT},\text{KNO}\}$, surgery type, OR
+identifier, waiting list identifier, and both planned and realised surgery
+duration. In total, 186 unique surgery types across 12 ORs are recorded. For a
+subset of records, the session identifier and within-session sequence are also
+provided.
+
+Two observations from the data motivate our scenario generation approach:
+\begin{enumerate}
+  \item Realised durations differ significantly across surgery types, making
+        surgery type a strong predictor of duration.
+  \item Planned durations outperform surgery-type historical averages as point
+        estimates: the mean absolute error using planned durations is $12.8\%$
+        lower than when using surgery-type averages.
+\end{enumerate}
+
+We therefore model the \emph{planned-duration error}
+$\varepsilon_p = d_p^{\text{real}} - d_p^{\text{plan}}$ rather than the
+realised duration directly, preserving the information content of the planned
+duration. For each surgery type $\tau$, we estimate parameters
+$\mu_\tau$ and $\sigma_\tau^2$ as the mean and variance of the observed errors
+$\varepsilon_p$ over all historical patients of type $\tau$. Realised durations
+are then sampled as:
+%
+\begin{equation}
+  d_{ps} \sim
+    \mathrm{LogNormal}\!\left(d_p^{\text{plan}} + \mu_\tau,\; \sigma_\tau^2
+    \right),
+  \qquad \forall\, p \in P,\; s \in S.
+  \label{eq:duration_dist}
+\end{equation}
+%
+Sampling the error rather than the raw duration ensures that surgery-type
+averages do not absorb the additional predictive signal carried by the planned
+duration. To generate a scenario $s$, one realisation $d_{ps}$ is drawn per
+patient $p$ from \eqref{eq:duration_dist}. All patient durations within a
+scenario are drawn independently; scenarios are also drawn independently of
+each other.
+
+To avoid sampling clinically implausible durations from the unbounded tails of
+the lognormal distribution, each draw is truncated to the interval
+$[\mu_p - 2\sigma_p,\, \mu_p + 2\sigma_p]$, with the lower bound additionally
+floored at a small positive value to preclude non-positive durations. This
+reflects the practical observation that a procedure is extremely unlikely to
+take a drastically shorter or longer time than its planned duration suggests,
+and that retaining such extreme outliers would distort both the SAA training set
+and the out-of-sample evaluation. The same truncation is applied consistently to
+all sampling methods and to the evaluation set, so the evaluation distribution
+is the truncated lognormal that we treat as the operative ``true'' distribution.
+
+\subsection{Sampling Strategies}
+\label{sec:sampling}
+
+We evaluate three sampling strategies to assess which provides the best
+solution quality for a given sample size $N$.
+
+\subsubsection{Random Sampling (RS)}
+Each duration $d_{ps}$ is drawn independently and uniformly at random from
+\eqref{eq:duration_dist}. Scenario probabilities are set to $\pi_s = 1/N$ for
+all $s \in S$. RS is unbiased and asymptotically consistent, but with small
+$N$ some regions of the distribution may be over- or under-represented, leading
+to higher variance across replications.
+
+\subsubsection{Latin Hypercube Sampling (LHS)}
+LHS stratifies the marginal cumulative distribution of each patient's duration
+into $N$ equally probable intervals $[(k-1)/N,\; k/N]$ for $k = 1, \dots, N$.
+One quantile value is drawn uniformly from each interval per patient, and the
+$N$ values are then randomly permuted across scenarios to form the scenario
+matrix $d_{ps}$. Scenario probabilities are $\pi_s = 1/N$. By construction,
+each marginal distribution is evenly covered, yielding lower variance than RS
+for the same $N$~\cite{McKay1979}.
+
+\subsubsection{Importance Sampling (IS)}
+
+Importance Sampling (IS) is a variance reduction technique that samples more frequently from regions of the input space that would disproportionately influence the objective, and corrects for this bias through likelihood ratio reweighting. In
+appointment scheduling, more extreme duration scenarios, where procedures run
+substantially longer or shorter than expected, are the primary drivers of
+overtime, idling, and patient waiting costs. Standard random sampling assigns
+these tail scenarios a low probability, requiring a large number of scenarios to achieve reliable cost estimates.
+
+To enrich the scenario set with such tail events, we apply a mean-shifting IS
+strategy as used in \cite{aditri-2026}. Specifically, we partition the
+scenario set $S$ into three equally sized subsets and draw each subset from a
+shifted lognormal distribution with mean parameter $\mu_\tau - k\sigma_\tau$,
+$\mu_\tau$, and $\mu_\tau + k\sigma_\tau$, respectively, where $k > 0$
+controls the magnitude of the shift. The negative shift targets scenarios in
+which procedures finish earlier than expected, increasing idling costs, while
+the positive shift targets scenarios in which procedures overrun, increasing
+overtime and downstream waiting costs.
+
+To ensure that the SAA objective remains an unbiased estimator of the true
+expected cost, each scenario $s$ is reweighted by its likelihood ratio under
+the nominal distribution relative to the shifted distribution from which it
+was drawn:
+%
+\begin{equation}
+  \pi_s
+    = \frac{\prod_{i} f(d_{is} \mid \mu_\tau,\, \sigma_\tau)}
+           {\prod_{i} f(d_{is} \mid \mu_\tau + \delta_s \sigma_\tau,\, \sigma_\tau)},
+  \label{eq:is_weights}
+\end{equation}
+%
+where $f(\cdot \mid \mu, \sigma_\tau)$ denotes the nominal lognormal density,
+$\delta_s \in \{-k,\, 0,\, k\}$ is the shift applied to the subset from
+which scenario $s$ was drawn, and the product runs over all surgeries $i$ in
+the schedule. Since surgery durations are sampled independently, the joint
+probability of a scenario factorises into the product of the individual
+marginal densities. Scenarios whose realised durations are consistent with the
+nominal distribution receive a weight close to one, while scenarios drawn from
+a strongly shifted distribution receive lower weight in proportion to how far
+they deviate from the nominal mean.
+
+A direct consequence of this reweighting is that the enriched tail scenarios —
+precisely those that drive overtime and cascade waiting — carry comparatively
+\emph{small} importance weights, since they are unlikely under the nominal
+distribution. The effective sample size, $N_{\text{eff}} = 1 / \sum_s \pi_s^2$,
+is therefore smaller than $N$, and for small $N$ the SAA objective under IS may
+require \emph{more} scenarios than RS to reach a stable estimate of the expected
+cost. The compensating benefit is robustness: because IS guarantees that
+worst-case (long-duration) realisations are represented in every sample, the
+resulting policies tend to hedge more conservatively against tail events. We
+return to this trade-off when interpreting the convergence results in
+Section~\ref{sec:results}.
+
+\subsection{Experimental Setup}
+\label{sec:exp_setup}
+
+\paragraph{Evaluation sample.}
+Solution quality is assessed on an out-of-sample evaluation set of size
+$N' = 1{,}000$ scenarios generated by RS from the treatment duration distribution
+\eqref{eq:duration_dist}. Because the evaluation set is large, RS provides
+near-complete coverage of the outcome space and serves as an approximation for the true
+expected cost.
+
+\paragraph{SAA parameters.}
+We use $M = 10$ independent replications per sample size $N$. The sample size is
+swept from an initial $N = 10$ in steps of $5$. Rather than estimating the true
+optimum $v^*$ to bound the optimality gap, we monitor the dispersion of the
+out-of-sample objective across replications through a $95\%$ confidence interval
+on the out-of-sample mean cost:
+%
+\begin{equation}
+  \bar{v} \pm z_{0.975}\,\frac{\hat{\sigma}_M}{\sqrt{M}},
+  \label{eq:ci}
+\end{equation}
+%
+where $\bar{v}$ and $\hat{\sigma}_M$ are the sample mean and standard
+deviation of the $M$ out-of-sample evaluations, and $z_{0.975} = 1.96$.
+For each sample size we record this interval and plot it against $N$; the
+appropriate $N$ is then selected \emph{post hoc} from the convergence plot as
+the point beyond which the mean cost stabilises and the interval no longer
+narrows materially.
+
+\paragraph{Expected performance of sampling strategies.}
+We expect LHS to outperform RS for small $N$ due to its stratification
+guarantee, and IS to excel when the objective is dominated by high-duration
+scenarios (overtime, late-cascade waiting times). RS, while unbiased, is
+expected to require the largest $N$ for comparable variance. These hypotheses
+are tested by applying each method across Steps~1--4 and comparing out-of-sample
+confidence intervals.
+
+\paragraph{Experiments}
+For Steps~1 and~2, we use the patient set from waiting list~4, which contains patients
+planned across 6 unique OR sessions, each with a known session identifier and
+within-session position label. This instance is used for both the timing-only model
+(Step~1) and the timing-and-sequencing model (Step~2), with the session and position
+labels serving to fix the assignment and sequencing in Step~1.
+
+For Step~3, four patient sets, drawn from waiting lists~4, 7, 10, and~13, are
+used to assess solution quality across different patient populations.
+Each waiting list contains patients planned across at least 6 unique sessions.
+
+Each of the four samples is solved using the SAA framework with all three sampling strategies.
+Starting from $N = 10$ scenarios and increasing in steps of 5, we apply.
+
+For each sample set, $M = 10$ independent replications are solved and the resulting
+out-of-sample objective values are evaluated on a fixed evaluation set of
+$N' = 1{,}000$ RS scenarios which we generate once per sample. Convergence is monitored via the $95\%$ confidence
+interval~\eqref{eq:ci}, which is kept for each $(sample,sampling~approach,N)$ and used to plot convergence and evaluate when $N$ is large enough for each of the sampling approaches (for each of the samples).

@@ -1,0 +1,65 @@
+Assignment Stochastic Programming
+Course: Stochastic Optimization and Learning
+Study year: 2025-2026
+Deadline: Thursday, June 25, 2026
+Surgery scheduling under uncertainty
+Consider an operating theatre with operating rooms (ORs), in which a set of inpatients 𝑝𝑝∈𝑃𝑃 are scheduled for surgery. The hospital wants you to support with their surgery scheduling process using Stochastic Programming methodologies. Each week, all patients on the waiting list are scheduled for surgery, assigned to an OR-day and sequenced within that OR. To ensure patients are brought from the wards to the operating theatre on time, a planned start time 𝑆𝑆𝑝𝑝 is communicated to the wards at the start of their shift.
+Your goal is amongst others to assign patients to OR sessions (assignment problem), determine the order in which they are scheduled (sequencing problem), and the planned starting times (timing problem) to communicate with the wards. Your overall objective is that the weighted sum of patient waiting time, resource idle time, and resource overtime is minimized (consider normalized weights 𝛽𝛽1, 𝛽𝛽2, 𝛽𝛽3 for the waiting time, idle time and overtime objectives respectively, with initial values 𝛽𝛽1 = 0.6, 𝛽𝛽2 = 𝛽𝛽3 = 0.2). The waiting time is defined as the positive difference between the actual starting time and the planned starting time. The idle time is defined as the time between the end time and starting time of two consecutively scheduled surgeries minus the mandatory changeover time between two subsequent surgeries. Throughout the assignment, consider a deterministic changeover time of 10 minutes between two subsequent surgeries. The overtime is the amount of time needed to finish all scheduled surgeries after the OR closing time (𝑡𝑡𝑐𝑐𝑐𝑐𝑐𝑐𝑐𝑐𝑐𝑐).
+Assume that the first patient will always start its surgery at the opening time (𝑡𝑡𝑜𝑜𝑜 𝑜𝑜𝑜𝑜 = 8:00ℎ) of each OR. You have to take into account that surgeries do not start before their communicated planned starting times, as the nurses that bring the patients are known to be extremely punctual. However, as the procedures have uncertain durations 𝐷𝐷𝑝𝑝 (note that typically lognormal or 3-parameter lognormal distributions are selected for representing surgery duration), the actual duration of each patient’s procedure is considered unknown upfront.
+A dataset derived from a Dutch operating theatre is available to support your data choices in this assignment. In this file, patients from three specialties are included. orthopaedics surgery (ORT), general surgery (CHI) and ear-nose-throat surgery (KNO).
+Unique patient IDs are given, together with a unique surgery type indicator, the waiting list ID indicating in which week they had to be planned for surgery, the planned surgery duration (by the hospital) and the realized surgery duration. For a subset of patients, also the actual session ID and the sequence they were served in that session are provided. Please make yourselves familiar with the data before proceeding with the assignment. For example, check for which waiting list periods OR sessions are given. Furthermore data shows for example that KNO can share a session with the other specialties, but this should be avoided where possible.
+You will apply a Stochastic Programming approach to solve this problem. Note that the number of possible scenarios is infinite through the continuous distribution of surgery durations. To overcome this challenge, you will apply a scenario sampling approach to create a finite scenario set (sample). You can construct samples in various ways. For example (but not limited to):
+- Latin hypercube sampling or orthogonal sampling; generate scenarios from an evenly distributed sample space of size Z.
+- Importance sampling; generate a biased subset of scenarios of size Z, which for example consists of scenarios that are more likely to occur, or that represent extreme situations.
+- Random sampling; randomly generate a subset of scenarios of size Z. In SAA, random sampling is typically applied.
+The assignment
+The assignment consists of 5 steps:
+Step 1. Develop a model and solution methodology that determines the optimal scheduled start times of a given set of patients that are assigned and sequenced in a predefined order in given ORs sessions (timing).
+Step 2. Develop a model and solution methodology for the same setting as step 1, but now also the sequencing per OR session should be decided upon (timing+sequencing)
+Step 3. Develop a model and solution methodology for the same setting as step 1+2, but now also the assignment of the patients to the OR sessions should be decided upon (timing+sequencing+assignment).
+Step 4. Implement your models in a programming environment of your own choice, and solve your models of steps 1-3 with the following instances: first select all patients that were planned in at least 6 unique sessions from one single waiting list. Execute steps 1-2 for these patients. For step 3, use this same set, but also 5 other patient sets from the sessions from waiting lists with at least 6 unique sessions to assess the quality of your approach. Use the remainder of
+the data for supporting your modelling and parameter selection choices (e.g., 𝑡𝑡𝑐𝑐𝑐𝑐𝑐𝑐𝑐𝑐𝑐𝑐, and patient type distributions). Step 5. Develop and implement a model that creates a blueprint for weeks in which 3 ORT sessions are scheduled in OR9. This blueprint should inform the planner how many patients of each type to assign to each OR, before the actual patients on the waiting list are known. To come up with proper instances for this problem, you might find the patient types in the dataset to be too specific. Therefore, you could consider defining higher level patient type definitions.
+Some remarks:
+- Introduction: In your report’s introduction, briefly introduce the problem, position it in the existing literature, and show why SP with SAA is a good solution methodology for this problem. Perform a brief literature review on the sample average approximation (SAA) method to justify your approach. From this review it should be clear why SAA is suitable for the problems at hand, what the disadvantages are, which design choices should be made, and a step-by-step approach on how you will implement SAA in your assignment.
+- Approach: For each step (1-5) clearly write down:
+o Model formulation as a two/multi-stage stochastic programming problem, either scenario based or in classical form.
+o Clearly define the first-/second-/third-stage variables, the uncertain parameters, and the recourse function.
+o Clearly define the first/second/third-stage objectives, and justify your choices.
+o Implement and solve the problem using the SAA method. Clearly describe the procedure and choices made. Support your SAA parameter initialization (e.g. sample size, number of replications, out-of-sample validation set size) with numerical evidence. Present your outcomes with relevant statistics (e.g. confidence interval of objective).
+o Present and interpret your final solutions. What timing/sequencing/assignment/blueprint strategy do you recommend? What is the expected effect in objectives of this strategy? Is there an intuition behind this strategy? What are the managerial implications or lessons learned based on your outcomes?
+- Sampling: For step 4 (surgery duration) and step 5 (patients + surgery durations), first perform a sampling evaluation. Use samples generated with the mentioned sampling approaches. Minimum requirements are: Generate 3 samples with the latin hypercube or orthogonal sampling approach, 2 different samples for the
+importance sampling approach, and generate 3 samples with the random sampling approach.
+o Clearly explain your selection criteria, and the way you assign probabilities to each scenario.
+o Solve your model with SAA for each of the samples and report on the outcomes and the differences between them.
+o Which sampling method would you expect to result in the best, and which one to result the worst solution? How does that relate to your solution quality (given that you evaluate your outcomes with out-of-sample validation sets based on the true distribution (i.e., random sampling))? Which sampling strategy do you select to base your final conclusions on?
+- Multi-stage stochastic program: In step 5 you are asked to develop a multi-stage (3-stage) model. In the first stage you decide how many patients of each type are assigned to each of the 3 OR sessions. In the second stage you determine the assignment, sequencing and timing of a realized set of patients (see Step 3). In the third stage you observe the realization of the schedule. To model this question, choose a time oriented version or a node oriented version and explain how non-anticipativity is covered.
+- Depth of analysis: Take time to reflect on your (intermediate) outcomes of step 1-5 and provide interpretable managerial insights. Calculate and interpret the EVPI and VSS where relevant. Use visualizations (e.g. boxplots or graphs) to support your (parameter) choices and results.
+- General remarks: Throughout your entire work: Use capitals for variables and regular font size letters for parameters, and ensure all constraints are written down in a linearized way.
+Your degrees of freedom: Several opportunities exist for extending this problem to increase the level of your work. For example, other sampling techniques can additionally be implemented and evaluated. Or, to account for surgeon- or OR-related impact on surgery durations, you can consider including a partial correlation of durations of surgeries that are scheduled in the same session or OR. Furthermore, various formulations of the objective function could be considered, based on some pre-established logic. For example: idle time in-between two surgeries could be more hindering than idle time occurred through an OR that finishes early, or a slight amount of waiting- and overtime is acceptable, but larger waiting- and overtime could be considered more inconvenient. Many other extensions are possible, but please check your ideas first with the lecturer during the practical sessions before implementation.
+Deliverables
+1. Report (pdf) (max 10 pages excluding Appendices): Your report should contain (but is not limited to): (a) literature-based motivation for modelling choices; (b) formal definitions of your models and SAA procedures; (c) description of your experimental setup and instance designs; (d) presentation and discussion/assessment of experimental results, including managerial insights.
+2. Code and results (zip): Submit your code (AIMMS/Python) with clear instructions on how to run them. Also submit the input and output data that you generated for the report. Please be aware that part of the assessment is based on your code (both general assessment as well as running it). Therefore, make sure all code is properly formatted and commented.
+Assessment criteria
+The total assignment is worth 90 points. The grade is calculated as (Points + 10)/10. For your answers to steps 1-4 you can get at most 55 points, for step 5 you can get 35 points.
+Category
+Weight (%)
+Description
+Report structure and clarity
+15
+We assess how clearly, logically, and professionally you present your answer to the problem. This includes the use of clear and supportive visualizations an d adherence to the 10-page limit.
+Technical correctness
+30
+We assess the technical correctness and accuracy of your formulations of models, algorithms, and policies.
+Quality of scientific analysis
+25
+We assess the quality and depth of your analyses and performance comparisons.
+Quality of reasoning
+15
+We assess how well you justify your decisions and statements, and whether design choices were justified using appropriate literature sources.
+Reproducibility
+15
+We assess to which degree you have given all information needed to reproduce your results.
+Use of Generative AI
+In this assignment, the use of AI tools (ChatGPT and similar generative AI tools) is allowed under the following conditions:
+• Students must be able to show full in-depth understanding of every single piece of their work for the assignment. If such understanding cannot be demonstrated (e.g., in the oral exam), the course cannot be passed.
+• For further details about use of AI and required AI statements, we refer to Section 7 of the SOL course manual.

@@ -1,0 +1,34 @@
+\section{Problem Description}
+
+We consider a weekly surgery scheduling problem in a hospital operating theatre 
+consisting of multiple operating rooms~(ORs). At the start of each week, all 
+inpatients $p \in P$ on the waiting list must be scheduled for surgery. The 
+scheduling process involves three interrelated decisions: (i)~\textit{assignment} 
+of patients to OR sessions, (ii)~\textit{sequencing} of patients within each OR, 
+and (iii)~\textit{timing}, i.e., determining the planned start time $S_p$ 
+communicated to the wards before the shift begins.
+
+Each OR opens at $t_{\text{open}} = 8{:}00$ h and closes at $t_{\text{close}}$. 
+The first patient in every OR begins surgery at opening time. Subsequent patients 
+may not start before their communicated planned start time, as ward nurses are 
+assumed to be perfectly punctual. A deterministic changeover time of 10 minutes 
+is required between any two consecutive surgeries.
+
+The key source of uncertainty is the surgery duration $D_p$, which is unknown at 
+the time of scheduling. Because surgeries cannot start 
+before their planned start time but may finish later than expected, delays 
+propagate through the sequence within an OR session.
+
+The objective is to minimise the weighted sum of three cost components: the total patient waiting time (positive difference between 
+actual and planned start time), the total OR idle time (slack 
+between consecutive surgeries beyond the mandatory changeover), and the 
+total overtime (time by which the last surgery in an OR exceeds 
+$t_{\text{close}}$). 
+
+Because $D_p$ is continuous and its realisation is only observed intraoperatively, 
+an exact deterministic formulation is insufficient. We therefore adopt a 
+two-stage stochastic programming framework with sample average 
+approximation~(SAA)~\cite{Kleywegt}: First-stage decisions (assignment, 
+sequencing, timing) are made before uncertainty is revealed, while second-stage 
+costs (waiting, idle, overtime) are evaluated over a finite scenario set. The goal is to find a schedule that minimises 
+expected costs across all scenarios. 
