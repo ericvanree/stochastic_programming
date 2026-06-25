@@ -92,6 +92,7 @@ prior to scheduling.
 \end{table}
 
 \subsection{Value of the Stochastic Solution}
+\label{subsec:VSS}
 
 The Value of the Stochastic Solution (VSS) measures the benefit of explicitly
 accounting for duration uncertainty rather than planning against a single
@@ -127,4 +128,43 @@ evaluation scenario $i$, computed by the recourse simulation. A large VSS
 indicates that incorporating uncertainty into the planning model yields a
 substantial cost reduction over the naive deterministic plan.
 
-% Results to be added.
+We estimate the VSS for the same four waiting lists used in
+Section~\ref{subsec:traineval}, again using $N = 20$ training scenarios sampled
+with LHS. The out-of-sample EEV and RP for the full MILP (Step 3) are shown in
+Figure~\ref{fig:vss_step3}; the corresponding results for Step 1 (timing only)
+and Step 2 (sequencing and timing) are reported in
+Appendix~\ref{app:vss_breakdowns}.
+
+\begin{figure}[h]
+    \centering
+    \includegraphics[width=1\linewidth]{Figures/vss_eev_rp_step3.png}
+    \caption{Out-of-sample deterministic policy and stochastic policy for the full MILP on four waiting lists. The annotated gap is the estimated VSS, both in absolute terms and as a percentage of the EEV.}
+    \label{fig:vss_step3}
+\end{figure}
+
+For Steps 1 and 2 the estimated VSS is positive for all four waiting lists,
+ranging from $13\%$ to $34\%$ of the deterministic out-of-sample cost. This is
+the expected outcome: the EV policy is optimised against a single scenario in
+which every surgery takes its mean duration and therefore ignores the
+variability of the realised durations, so it is systematically outperformed by
+the SAA policy on the out-of-sample set.
+
+For the full MILP (Step 3) this pattern no longer holds uniformly. The VSS
+remains clearly positive for two waiting lists (wl4 and wl10, at $+34\%$ and
+$+28\%$ respectively), but turns negative for the other two (wl7 at $-13\%$ and
+wl13 at $-4\%$). As discussed, a negative VSS is highly unlikely to happen show, because the stochastic model models the variation in the sample set better than the deterministic model.
+The most plausible explanation is computational. In Step 3 neither the
+deterministic nor the stochastic instance is solved to proven optimality within
+the imposed time limit of $300$\,s. The deterministic problem contains a single
+scenario, whereas the stochastic problem replicates the second-stage structure
+across all $20$ training scenarios and is consequently far larger and harder to
+solve. Within the same wall-clock budget the deterministic run attains a smaller
+optimality gap than the stochastic run, so the EV policy it returns can happen
+to evaluate better out-of-sample than the prematurely terminated SAA policy.
+This is precisely the situation that produces a spurious negative VSS, and it is
+consistent with the two affected waiting lists (wl7 and wl13) being exactly
+those whose objectives are dominated by the specialty-mismatch term identified
+in Section~\ref{subsec:traineval}, which makes their MILPs the most demanding to
+solve. We therefore expect that, if the Step 3 training instances were solved to
+optimality as they effectively are in Steps 1 and 2, the VSS would be
+non-negative for all four waiting lists.
