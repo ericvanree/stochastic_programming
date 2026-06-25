@@ -47,14 +47,19 @@ from sampling import generate_scenarios
 # %%
 if __name__ == "__main__":
     # ══ Scenario parameters ════════════════════════════════════════════════════
-    N_SCENARIOS     = 11           # 0 = deterministic expected duration
-    SAMPLING_METHOD = "random"    # 'expected' | 'random' | 'lhs' | 'is'
+    N_SCENARIOS     = 20           # 0 = deterministic expected duration
+    SAMPLING_METHOD = "lhs"    # 'expected' | 'random' | 'lhs' | 'is'
     IS_K            = 0.5    # shift magnitude for IS (delta ∈ {-k, 0, k}); ignored for other methods
     RANDOM_SEED     = 42
+    N_PRIME         = 10_000   # out-of-sample evaluation size (random sampling)
+
+    # ══ Output directory (script-relative, matches saa.py) ═════════════════════
+    OUTPUT_DIR = os.path.join(os.path.dirname(__file__), "..", "output")
+    os.makedirs(OUTPUT_DIR, exist_ok=True)
 
     # ══ Load CSV ═══════════════════════════════════════════════════════════════
     # Available workloads: sample_wl4.csv, sample_wl7.csv, sample_wl10.csv, sample_wl13.csv
-    WORKLOAD = 4   # choose 4 | 7 | 10 | 13
+    WORKLOAD = 13   # choose 4 | 7 | 10 | 13
     DATA_FILE = rf"input\sample_wl{WORKLOAD}.csv"
     df = pd.read_csv(DATA_FILE)
     print(f"Loaded {len(df)} patients across {df['Session ID'].nunique()} sessions")
@@ -542,8 +547,12 @@ def extract_solution(m):
     return {"sessions": sessions, "patients": patients, "scenarios": list(S)}
 
 
-def plot_dashboard(sol, title):
-    """Interactive Gantt-style session timeline. Scenario selector via dropdown."""
+def plot_dashboard(sol, title, save_path=None):
+    """Interactive Gantt-style session timeline. Scenario selector via dropdown.
+
+    When *save_path* is given, the figure is also written to that HTML file
+    (in addition to being opened in the browser).
+    """
     if sol is None:
         print("No solution to plot.")
         return
@@ -714,7 +723,198 @@ def plot_dashboard(sol, title):
         margin=dict(l=230, r=120, t=100, b=60),
     )
 
+    if save_path is not None:
+        fig.write_html(save_path)
+        print(f"Schedule dashboard saved to: {save_path}")
+
     fig.show()
+
+
+# %% [markdown]
+# ## 4c. Objective decomposition & result storage
+#
+# For each solved step we record the **weighted contribution** of every
+# objective part (W = waiting, I = idle, O = overtime, D = specialty mismatch)
+# both in-sample (read off the model) and out-of-sample (evaluated on a fresh
+# `N'`-scenario random set via the SAA `simulate_schedule` logic).  Results are
+# streamed to a cumulative CSV and plotted per step.
+
+# %%
+# Objective-part colour palette (consistent across breakdown plots).
+# In-sample bars use the saturated base colours; out-of-sample bars use a
+# lighter tint of the same hue so the two are clearly distinguishable and each
+# appears as its own legend entry.
+_PART_COLOR = {            # in-sample
+    "W": "#4e79a7",   # waiting
+    "I": "#f28e2b",   # idle
+    "O": "#59a14f",   # overtime
+    "D": "#e15759",   # specialty mismatch
+}
+_PART_COLOR_OUT = {        # out-of-sample (lighter tints of the in-sample hues)
+    "W": "#a7c2de",
+    "I": "#fbd2a3",
+    "O": "#aed6ab",
+    "D": "#f3aeaf",
+}
+_PART_LABEL = {
+    "W": "Waiting (W)",
+    "I": "Idle (I)",
+    "O": "Overtime (O)",
+    "D": "Specialty (D)",
+}
+
+# Column order for the cumulative breakdown CSV.
+_BREAKDOWN_COLS = [
+    "workload", "step", "sample",
+    "W", "I", "O", "D", "total",
+    "beta_W", "beta_I", "beta_O", "beta_D",
+    "t_start", "t_close", "c",
+    "n_scenarios", "sampling_method", "seed", "is_k", "n_prime",
+]
+
+
+def objective_parts_in_sample(m, P, H, S, SPECS, pi, beta) -> dict:
+    """Weighted in-sample contribution of each objective part of a solved model.
+
+    Returns ``{"W", "I", "O", "D", "total"}`` where each value is already
+    multiplied by its β weight (and scenario probabilities for the second-stage
+    parts), so the four parts sum to the model objective.
+    """
+    if m.SolCount == 0:
+        return None
+
+    w_contrib = beta["W"] * sum(pi[s] * sum(m._W[p, s].X for p in P) for s in S)
+    i_contrib = beta["I"] * sum(
+        pi[s] * sum(m._I[p, pp, s].X for p in P for pp in P if p != pp) for s in S
+    )
+    o_contrib = beta["O"] * sum(pi[s] * sum(m._O[h, s].X for h in H) for s in S)
+    d_contrib = beta["D"] * sum(m._D[h, q].X for h in H for q in SPECS)
+    total = w_contrib + i_contrib + o_contrib + d_contrib
+    return {"W": w_contrib, "I": i_contrib, "O": o_contrib,
+            "D": d_contrib, "total": total}
+
+
+def evaluate_out_of_sample_parts(m, P, H, SPECS, d_eval, S_eval, pi_eval) -> dict:
+    """Out-of-sample weighted objective parts for a solved model's first-stage policy.
+
+    Reuses the SAA analytic simulator (`saa.simulate_schedule`) so the
+    out-of-sample evaluation is *identical* in logic to the SAA convergence
+    study.  Imported lazily to avoid the saa↔main circular import at load time.
+    """
+    if m.SolCount == 0:
+        return None
+    from saa import simulate_schedule  # lazy: avoids circular import at module load
+
+    return simulate_schedule(
+        {k: m._X[k].X for k in m._X},
+        {k: m._Y[k].X for k in m._Y},
+        {p: m._A[p].X for p in P},
+        {k: m._D[k].X for k in m._D},
+        d_eval, S_eval, pi_eval, P, H, SPECS,
+        return_parts=True,
+    )
+
+
+def write_objective_breakdown(output_dir, new_rows) -> str:
+    """Append/overwrite rows in the cumulative objective-breakdown CSV.
+
+    Rows are keyed by ``(workload, step, sample)``; re-running a workload
+    replaces its existing rows (latest run wins) while leaving other workloads
+    untouched.  Returns the CSV path.
+    """
+    path = os.path.join(output_dir, "objective_breakdown.csv")
+    df_new = pd.DataFrame(new_rows, columns=_BREAKDOWN_COLS)
+
+    if os.path.exists(path):
+        try:
+            df_old = pd.read_csv(path)
+            df_all = pd.concat([df_old, df_new], ignore_index=True)
+        except Exception as exc:
+            print(f"Could not read existing {path} ({exc}); starting fresh.")
+            df_all = df_new
+    else:
+        df_all = df_new
+
+    df_all = (
+        df_all
+        .drop_duplicates(subset=["workload", "step", "sample"], keep="last")
+        .sort_values(["workload", "step", "sample"])
+        .reset_index(drop=True)
+    )
+    df_all.to_csv(path, index=False)
+    print(f"Objective breakdown written to: {path}  ({len(df_all)} rows total)")
+    return path
+
+
+def plot_objective_breakdown(csv_path, output_dir) -> None:
+    """One stacked-bar PNG per step from the cumulative breakdown CSV.
+
+    For each step: x-axis = waiting lists, two stacked bars per wl sitting
+    side-by-side — in-sample (saturated colours) and out-of-sample (lighter
+    tints) — each stacked by objective part W/I/O/D.  In-sample and out-of-sample
+    are separate legend entries (different colours).
+    """
+    import matplotlib
+    matplotlib.use("Agg")            # headless: write PNG without a display
+    import matplotlib.pyplot as plt
+    from matplotlib.patches import Patch
+
+    df_res = pd.read_csv(csv_path)
+    step_labels = {1: "Timing only", 2: "Sequencing + Timing", 3: "Full MILP"}
+    parts = ["W", "I", "O", "D"]
+    bar_w = 0.38
+
+    for step in (1, 2, 3):
+        df_s = df_res[df_res["step"] == step]
+        if df_s.empty:
+            continue
+
+        wls = sorted(df_s["workload"].unique())
+        x = np.arange(len(wls))
+
+        fig, ax = plt.subplots(figsize=(max(6, 1.6 * len(wls) + 3), 5))
+
+        for sample, dx, palette in [
+            ("in",  -bar_w / 2, _PART_COLOR),
+            ("out", +bar_w / 2, _PART_COLOR_OUT),
+        ]:
+            df_smp = df_s[df_s["sample"] == sample].set_index("workload")
+            bottom = np.zeros(len(wls))
+            for part in parts:
+                vals = np.array([
+                    float(df_smp.loc[w, part]) if w in df_smp.index else 0.0
+                    for w in wls
+                ])
+                ax.bar(x + dx, vals, bar_w, bottom=bottom,
+                       color=palette[part], edgecolor="white", linewidth=0.5)
+                bottom += vals
+
+        # Legend: one entry per (part × sample) so the out-of-sample colours show.
+        handles = (
+            [Patch(facecolor=_PART_COLOR[p],
+                   label=f"{_PART_LABEL[p]} — in-sample") for p in parts]
+            + [Patch(facecolor=_PART_COLOR_OUT[p],
+                     label=f"{_PART_LABEL[p]} — out-of-sample") for p in parts]
+        )
+        ax.legend(handles=handles, title="Objective part",
+                  loc="center left", bbox_to_anchor=(1.01, 0.5), frameon=False)
+
+        ax.set_xticks(x)
+        ax.set_xticklabels([f"wl{w}" for w in wls])
+        ax.set_xlabel("Waiting list")
+        ax.set_ylabel("Contribution to objective")
+        ax.set_title(
+            f"Objective breakdown — Step {step} ({step_labels[step]})\n"
+            f"left bar = in-sample, right bar = out-of-sample (stacked by part)"
+        )
+        ax.grid(axis="y", color="lightgray", linewidth=0.6)
+        ax.set_axisbelow(True)
+        fig.tight_layout()
+
+        plot_path = os.path.join(output_dir, f"objective_breakdown_step{step}.png")
+        fig.savefig(plot_path, dpi=150, bbox_inches="tight")
+        plt.close(fig)
+        print(f"Objective breakdown plot saved to: {plot_path}")
 
 
 # %% [markdown]
@@ -748,7 +948,10 @@ if __name__ == "__main__":
     m1.optimize()
     print_solution(m1, "Step 1 — Timing only (session + sequence fixed from CSV)")
     sol1 = extract_solution(m1)
-    plot_dashboard(sol1, "Step 1 — Timing only")
+    plot_dashboard(
+        sol1, "Step 1 — Timing only",
+        save_path=os.path.join(OUTPUT_DIR, f"schedule_wl{WORKLOAD}_step1.html"),
+    )
 
     # %% [markdown]
     # ## 6. Step 2 — Sequencing + timing
@@ -785,7 +988,10 @@ if __name__ == "__main__":
     m2.optimize()
     print_solution(m2, "Step 2 — Sequencing + timing (session fixed from CSV, sequence free)")
     sol2 = extract_solution(m2)
-    plot_dashboard(sol2, "Step 2 — Sequencing + timing")
+    plot_dashboard(
+        sol2, "Step 2 — Sequencing + timing",
+        save_path=os.path.join(OUTPUT_DIR, f"schedule_wl{WORKLOAD}_step2.html"),
+    )
 
     # %% [markdown]
     # ## 7. Step 3 — Full MILP
@@ -893,7 +1099,10 @@ if __name__ == "__main__":
     m3.optimize()
     print_solution(m3, "Step 3 — Full MILP (all decisions free)")
     sol3 = extract_solution(m3)
-    plot_dashboard(sol3, "Step 3 — Full MILP")
+    plot_dashboard(
+        sol3, "Step 3 — Full MILP",
+        save_path=os.path.join(OUTPUT_DIR, f"schedule_wl{WORKLOAD}_step3.html"),
+    )
 
     # %% [markdown]
     # ## 8. Objective comparison
@@ -911,3 +1120,56 @@ if __name__ == "__main__":
             print(f"  {label}: {model.ObjVal:.4f}")
         else:
             print(f"  {label}: no feasible solution")
+
+    # %% [markdown]
+    # ## 9. Result storage — objective breakdown & out-of-sample evaluation
+    #
+    # For each step we store the weighted contribution of every objective part
+    # (W/I/O/D) in-sample and out-of-sample, plus the run's input parameters, in
+    # a cumulative CSV.  The out-of-sample set is N'=10,000 random scenarios,
+    # evaluated with the same analytic logic as the SAA study.
+
+    print(f"\nGenerating N'={N_PRIME} out-of-sample scenarios (random, "
+          f"seed={RANDOM_SEED})...")
+    d_eval, S_eval, pi_eval = generate_scenarios(df, N_PRIME, "random", RANDOM_SEED)
+
+    breakdown_rows = []
+    for step, model in [(1, m1), (2, m2), (3, m3)]:
+        if model.SolCount == 0:
+            print(f"  Step {step}: no feasible solution — skipping result storage.")
+            continue
+
+        in_parts  = objective_parts_in_sample(model, P, H, S, SPECS, pi, beta)
+        out_parts = evaluate_out_of_sample_parts(
+            model, P, H, SPECS, d_eval, S_eval, pi_eval
+        )
+        print(f"  Step {step}: in-sample total={in_parts['total']:.2f}  "
+              f"out-of-sample total={out_parts['total']:.2f}")
+
+        for sample, parts in [("in", in_parts), ("out", out_parts)]:
+            breakdown_rows.append({
+                "workload":        WORKLOAD,
+                "step":            step,
+                "sample":          sample,
+                "W":               parts["W"],
+                "I":               parts["I"],
+                "O":               parts["O"],
+                "D":               parts["D"],
+                "total":           parts["total"],
+                "beta_W":          beta["W"],
+                "beta_I":          beta["I"],
+                "beta_O":          beta["O"],
+                "beta_D":          beta["D"],
+                "t_start":         t_start,
+                "t_close":         t_close,
+                "c":               c,
+                "n_scenarios":     N_SCENARIOS,
+                "sampling_method": SAMPLING_METHOD,
+                "seed":            RANDOM_SEED,
+                "is_k":            IS_K,
+                "n_prime":         N_PRIME,
+            })
+
+    if breakdown_rows:
+        csv_path = write_objective_breakdown(OUTPUT_DIR, breakdown_rows)
+        plot_objective_breakdown(csv_path, OUTPUT_DIR)
